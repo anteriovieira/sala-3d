@@ -25,6 +25,8 @@ export interface Prefs {
   deptMode: DeptMode;
   sign: string;
   thirdParty: boolean;
+  /** desenvolvimento: mostrador de quadros por segundo (Alt+Shift+P) */
+  fps: boolean;
   timeZone: string;
   platform: string | null;
   /** skin por agente (id estável): nome da skin ou 'none' */
@@ -35,7 +37,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   depts: true, roster: true, names: true, bubbles: true, screens: true, skins: false, zone: true, legend: true,
   rotate: true, open: true, timeline: true, tlOpen: true, sound: false, size: 1, speed: 0, theme: 0,
-  deptMode: 'separate', sign: 'SALA 3D', thirdParty: true, timeZone: '', platform: null, skinOf: {}, cam: null,
+  deptMode: 'separate', sign: 'SALA 3D', thirdParty: true, fps: false, timeZone: '', platform: null, skinOf: {}, cam: null,
 };
 
 const KEY = 'sala.prefs';
