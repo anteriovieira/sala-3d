@@ -1,6 +1,6 @@
-// Janela de conversa com um bot: uma por bot, várias abertas, arrastável pelo topo, em cascata.
+// Conversa com um bot: uma aba por bot no painel de conversas da casca (AppShell).
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { Agent, ChatItem } from '@shared/types';
 import { avatarUrl } from '../avatar';
 import { dayTime, statusText, t } from '../i18n';
@@ -45,30 +45,19 @@ function Message({ m, a }: { m: ChatItem; a: Agent }) {
   );
 }
 
-export function ChatWindow({ a, index, z }: { a: Agent; index: number; z: number }) {
+export function ChatWindow({ a }: { a: Agent }) {
   const ref = useRef<HTMLDivElement>(null);
   const log = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLTextAreaElement>(null);
   const atEnd = useRef(true);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const pending = useUI((s) => s.pending[a.id]);
   const prefs = useUI((s) => s.prefs);
   const multi = useUI((s) => s.room.connectors.length > 1);
   const platform = useUI((s) => s.room.connectors.find((c) => c.id === a.connectorId)?.label);
   const closeWindow = useUI((s) => s.closeWindow);
-  const raise = useUI((s) => s.raiseWindow);
   const setSkinMenu = useUI((s) => s.setSkinMenu);
   const caps = capsOf(a);
   const chat = [...a.chat, ...(pending ?? [])];
-
-  // posição inicial: centro, em cascata
-  useLayoutEffect(() => {
-    const el = ref.current, app = el?.parentElement;
-    if (!el || !app || pos) return;
-    const n = index % 6;
-    setPos({ x: Math.max(8, (app.clientWidth - el.offsetWidth) / 2 + n * 30), y: Math.max(8, (app.clientHeight - el.offsetHeight) / 2 - 20 + n * 30) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     if (!coarse()) setTimeout(() => text.current?.focus(), 40);
@@ -80,20 +69,6 @@ export function ChatWindow({ a, index, z }: { a: Agent; index: number; z: number
     const l = log.current;
     if (l && atEnd.current) l.scrollTop = l.scrollHeight;
   }, [chat.length, a.status]);
-
-  const onDrag = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return;
-    const el = ref.current!, app = el.parentElement!;
-    const ox = e.clientX - el.offsetLeft, oy = e.clientY - el.offsetTop;
-    const top = e.currentTarget as HTMLElement;
-    top.setPointerCapture(e.pointerId);
-    el.classList.add('drag');
-    const mv = (ev: PointerEvent) => setPos({ x: Math.min(app.clientWidth - 60, Math.max(60 - el.offsetWidth, ev.clientX - ox)), y: Math.min(app.clientHeight - 44, Math.max(0, ev.clientY - oy)) });
-    const up = () => { el.classList.remove('drag'); top.removeEventListener('pointermove', mv); top.removeEventListener('pointerup', up); top.removeEventListener('pointercancel', up); };
-    top.addEventListener('pointermove', mv);
-    top.addEventListener('pointerup', up);
-    top.addEventListener('pointercancel', up);
-  };
 
   const grow = () => { const ta = text.current!; ta.style.height = '20px'; ta.style.height = Math.min(110, ta.scrollHeight) + 'px'; };
   const send = () => {
@@ -109,14 +84,12 @@ export function ChatWindow({ a, index, z }: { a: Agent; index: number; z: number
   return (
     <div
       ref={ref}
-      className="cwin"
-      style={{ left: pos?.x ?? -9999, top: pos?.y ?? 0, zIndex: z }}
-      onPointerDownCapture={() => raise(a.id)}
+      className="cwin docked"
       onWheel={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
     >
-      <div className="top" onPointerDown={onDrag}>
+      <div className="top">
         <img className="av" alt="" src={avatarUrl(a.slot, prefs.skins ? skinFor(a) : null)} />
         <div>
           <h2>{a.name}</h2>
