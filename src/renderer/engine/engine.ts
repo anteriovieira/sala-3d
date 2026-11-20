@@ -75,6 +75,17 @@ export class RoomEngine {
   private fTgt = new THREE.Vector3();
   private fOff = new THREE.Vector3();
   private proj = new THREE.Vector3();
+  // medição de quadros (dev): sempre contada (custo desprezível); o mostrador só aparece com prefs.fps
+  private fpsLast = 0;
+  private fpsStart = 0;
+  private fpsFrames = 0;
+  private fpsTotalMs = 0;
+  private fpsWorstMs = 0;
+  private fpsWinFrames = 0;
+  private fpsWinMs = 0;
+  private fpsEl: HTMLDivElement | null = null;
+  // janela escondida não gera quadros: a pausa não conta como quadro lento
+  private fpsVisibility = () => { this.fpsLast = 0; };
 
   constructor(private app: HTMLElement, private labelsEl: HTMLElement, private cb: EngineCallbacks, prefs: Prefs) {
     this.prefs = prefs;
@@ -90,6 +101,8 @@ export class RoomEngine {
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoftShadowMap foi removido no three 0.18x
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
+    document.addEventListener('visibilitychange', this.fpsVisibility);
+    if (prefs.fps) this.showFps(true);
     this.renderer.domElement.className = 'scene';
     app.insertBefore(this.renderer.domElement, labelsEl);
     try {
@@ -376,6 +389,7 @@ export class RoomEngine {
     const prev = this.prefs;
     this.prefs = p;
     if (p.rotate && !prev.rotate) this.rotMs = nowMs();
+    if (!!p.fps !== !!prev.fps) this.showFps(!!p.fps);
     if (p.deptMode !== prev.deptMode && this.room.agents.length) this.setRoom(this.room);
     this.applyPrefs();
   }
@@ -870,6 +884,7 @@ export class RoomEngine {
   // ---------- laço ----------
   private animate = () => {
     this.raf = requestAnimationFrame(this.animate);
+    this.measureFrame();
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 0.05);
     const t = this.timer.getElapsed();
@@ -899,6 +914,57 @@ export class RoomEngine {
     if (!this.readyFired) { this.readyFired = true; requestAnimationFrame(() => this.cb.ready()); }
   };
 
+  // ---------- medição de quadros ----------
+  private measureFrame() {
+    const now = performance.now();
+    const gap = this.fpsLast ? now - this.fpsLast : 0;
+    this.fpsLast = now;
+    if (!this.fpsStart) this.fpsStart = now;
+    // aquecimento: os primeiros 3 s (compilação de shaders, texturas das skins) ficam fora da conta
+    if (!gap || now - this.fpsStart < 3000) return;
+    this.fpsFrames++;
+    this.fpsTotalMs += gap;
+    if (gap > this.fpsWorstMs) this.fpsWorstMs = gap;
+    this.fpsWinFrames++;
+    this.fpsWinMs += gap;
+    if (this.fpsWinMs >= 500) {
+      if (this.fpsEl) {
+        const info = this.renderer.info.render;
+        this.fpsEl.textContent = `${Math.round((1000 * this.fpsWinFrames) / this.fpsWinMs)} fps · pior ${Math.round(this.fpsWorstMs)} ms · ${this.bots.size} bots · ${info.calls} draws`;
+      }
+      this.fpsWinFrames = 0;
+      this.fpsWinMs = 0;
+    }
+  }
+
+  private showFps(on: boolean) {
+    // ligar ou desligar o mostrador recomeça a medição
+    this.fpsFrames = 0; this.fpsTotalMs = 0; this.fpsWorstMs = 0; this.fpsWinFrames = 0; this.fpsWinMs = 0;
+    if (on && !this.fpsEl) {
+      const el = document.createElement('div');
+      el.id = 'fps';
+      el.style.cssText = 'position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:40;padding:3px 8px;border-radius:6px;background:rgba(0,0,0,.6);color:#9fe6ff;font:11px/1.4 ui-monospace,Menlo,monospace;pointer-events:none';
+      el.textContent = '… fps';
+      this.app.appendChild(el);
+      this.fpsEl = el;
+    } else if (!on && this.fpsEl) {
+      this.fpsEl.remove();
+      this.fpsEl = null;
+    }
+  }
+
+  /** Para testes e medição (critério 1): média de quadros por segundo e pior quadro (ms) depois do aquecimento. */
+  fpsStats(): { avg: number; worstMs: number; frames: number; calls: number; triangles: number } {
+    const info = this.renderer.info.render;
+    return {
+      avg: this.fpsTotalMs ? Math.round((10000 * this.fpsFrames) / this.fpsTotalMs) / 10 : 0,
+      worstMs: Math.round(this.fpsWorstMs * 10) / 10,
+      frames: this.fpsFrames,
+      calls: info.calls,
+      triangles: info.triangles,
+    };
+  }
+
   /** Para testes: menor distância entre dois bots agora. */
   minDistance(): number {
     const bs = [...this.bots.values()];
@@ -909,6 +975,9 @@ export class RoomEngine {
 
   dispose() {
     cancelAnimationFrame(this.raf);
+    document.removeEventListener('visibilitychange', this.fpsVisibility);
+    this.fpsEl?.remove();
+    this.fpsEl = null;
     this.timers.forEach(clearInterval);
     this.cleanups.forEach((f) => f());
     for (const b of this.bots.values()) b.dispose();
