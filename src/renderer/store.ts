@@ -35,21 +35,30 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   depts: true, roster: true, names: true, bubbles: true, screens: true, skins: false, zone: true, legend: true,
   rotate: true, open: true, timeline: true, tlOpen: true, sound: false, size: 1, speed: 0, theme: 0,
-  deptMode: 'separate', sign: 'SALA 3D', thirdParty: true, timeZone: '', platform: null, skinOf: {}, cam: null,
+  deptMode: 'separate', sign: 'SALA 3D', thirdParty: false, timeZone: '', platform: null, skinOf: {}, cam: null,
 };
 
 const KEY = 'sala.prefs';
-function loadPrefs(): Prefs {
+/** v2: thirdParty passou a ser desligado por padrão. Prefs v1 (sem versão) gravavam o padrão antigo como se fosse escolha. */
+export const PREFS_VERSION = 2;
+// Chave ausente nas prefs guardadas cai no padrão atual (ex.: thirdParty desligado).
+export function loadPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (raw && typeof raw === 'object') return { ...DEFAULT_PREFS, ...(raw.cfg ?? raw), skinOf: { ...(raw.cfg?.skinOf ?? raw.skinOf ?? {}) }, cam: raw.cam ?? null };
+    if (raw && typeof raw === 'object') {
+      const cfg = { ...(raw.cfg ?? raw) };
+      // v1 gravava todas as prefs: thirdParty: true ali veio do padrão antigo, não de uma escolha. Volta ao padrão.
+      if ((raw.v ?? 1) < PREFS_VERSION) delete cfg.thirdParty;
+      delete cfg.v;
+      return { ...DEFAULT_PREFS, ...cfg, skinOf: { ...(raw.cfg?.skinOf ?? raw.skinOf ?? {}) }, cam: raw.cam ?? null };
+    }
   } catch { /* ignora */ }
   return { ...DEFAULT_PREFS };
 }
 export function savePrefs(p: Prefs) {
   try {
     const { cam, ...cfg } = p;
-    localStorage.setItem(KEY, JSON.stringify({ cfg, cam }));
+    localStorage.setItem(KEY, JSON.stringify({ v: PREFS_VERSION, cfg, cam }));
   } catch { /* ignora */ }
 }
 
@@ -73,6 +82,8 @@ export interface UIState {
   setRoom(s: RoomState): void;
   setLink(ok: boolean): void;
   setPref<K extends keyof Prefs>(k: K, v: Prefs[K]): void;
+  /** Skin de um bot. name null = sem skin; igual à de fábrica = volta ao padrão. Nunca mexe nos interruptores globais. */
+  chooseSkin(id: AgentId, name: string | null, factory: string | undefined): void;
   openWindow(id: AgentId): void;
   closeWindow(id: AgentId): void;
   raiseWindow(id: AgentId): void;
@@ -116,6 +127,12 @@ export const useUI = create<UIState>((set, get) => ({
     const prefs = { ...get().prefs, [k]: v };
     set({ prefs });
     savePrefs(prefs);
+  },
+  chooseSkin: (id, name, factory) => {
+    const skinOf = { ...get().prefs.skinOf };
+    if (name !== null && name === factory) delete skinOf[id];
+    else skinOf[id] = name ?? 'none';
+    get().setPref('skinOf', skinOf);
   },
   openWindow: (id) => set({ windows: [...get().windows.filter((w) => w !== id), id] }),
   closeWindow: (id) => set({ windows: get().windows.filter((w) => w !== id) }),

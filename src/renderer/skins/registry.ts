@@ -22,8 +22,8 @@ export function onSkinsChange(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-/** Pacotes desligados (ex.: 'terceiros' num app público) somem da lista e dos padrões. */
-let disabledPacks = new Set<string>();
+/** Pacotes desligados somem da lista e dos padrões. 'terceiros' começa desligado: só entra se o ajuste ligar. */
+let disabledPacks = new Set<string>(['terceiros']);
 export function setDisabledPacks(p: string[]): void {
   disabledPacks = new Set(p);
   listeners.forEach((l) => l());

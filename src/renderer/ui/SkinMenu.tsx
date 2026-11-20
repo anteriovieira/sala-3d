@@ -1,4 +1,5 @@
 // Menu de skins: grade com "Sem skin" + todas as skins registradas.
+// Escolher uma skin muda só este bot: os interruptores globais (Mostrar skins, terceiros) ficam como estão.
 
 import { useEffect, useRef } from 'react';
 import { css, pastelOf, skinThumb } from '../avatar';
@@ -11,7 +12,8 @@ export function SkinMenu() {
   const set = useUI((s) => s.setSkinMenu);
   const agent = useUI((s) => s.room.agents.find((a) => a.id === s.skinMenu?.agentId));
   const prefs = useUI((s) => s.prefs);
-  const setPref = useUI((s) => s.setPref);
+  const chooseSkin = useUI((s) => s.chooseSkin);
+  const showToast = useUI((s) => s.showToast);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,11 +40,9 @@ export function SkinMenu() {
   const curName = prefs.skinOf[agent.id] === 'none' ? null : cur?.name ?? null;
   const fab = defaultSkin(agent.slot);
   const choose = (name: string | null) => {
-    const skinOf = { ...prefs.skinOf };
-    if (name !== null && name === fab?.name) delete skinOf[agent.id];
-    else skinOf[agent.id] = name ?? 'none';
-    setPref('skinOf', skinOf);
-    if (!prefs.skins) setPref('skins', true);
+    chooseSkin(agent.id, name, fab?.name);
+    // antes ligava "Mostrar skins" para todos os bots sem avisar; agora só avisa
+    if (!prefs.skins && name !== null) showToast('Skin guardada. Para ver na sala, ligue "Mostrar skins" nos ajustes.');
     set(null);
   };
   return (
