@@ -1,7 +1,7 @@
 // Skins de terceiros (pack 'terceiros') ficam desligadas por padrão; o interruptor continua nos ajustes.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentId } from '@shared/types';
-import { DEFAULT_PREFS, loadPrefs, useUI } from '../src/renderer/store';
+import { DEFAULT_PREFS, loadPrefs, savePrefs, useUI } from '../src/renderer/store';
 
 function saved(value: unknown) {
   vi.stubGlobal('localStorage', {
@@ -38,11 +38,28 @@ describe('prefs: skins de terceiros', () => {
     expect(p.names).toBe(false);
   });
 
-  it('escolha explícita guardada é respeitada', () => {
-    saved({ cfg: { thirdParty: true }, cam: null });
+  it('prefs v1 com thirdParty: true (gravado pelo padrão antigo) voltam a desligado', () => {
+    saved({ cfg: { thirdParty: true, names: false }, cam: null });
+    const p = loadPrefs();
+    expect(p.thirdParty).toBe(false);
+    expect(p.names).toBe(false);
+  });
+
+  it('escolha explícita guardada em v2 é respeitada', () => {
+    saved({ v: 2, cfg: { thirdParty: true }, cam: null });
     expect(loadPrefs().thirdParty).toBe(true);
-    saved({ cfg: { thirdParty: false }, cam: null });
+    saved({ v: 2, cfg: { thirdParty: false }, cam: null });
     expect(loadPrefs().thirdParty).toBe(false);
+  });
+
+  it('savePrefs grava a versão, e a escolha sobrevive a recarregar', () => {
+    let out = '';
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (_k: string, v: string) => { out = v; } });
+    savePrefs({ ...DEFAULT_PREFS, thirdParty: true });
+    const raw = JSON.parse(out);
+    expect(raw.v).toBe(2);
+    saved(raw);
+    expect(loadPrefs().thirdParty).toBe(true);
   });
 
   it('prefs corrompidas: desligado', () => {
