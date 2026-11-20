@@ -70,7 +70,7 @@ scripts/         smoke.mjs, extract-skins.mjs
 3. **"Mostrar skins" começa desligado**, como no código de referência (a spec não diz o padrão).
 4. **Letreiro** configurável, padrão "SALA 3D" (antes era fixo "ANTÉRIO HQ"). **Fuso** do aparelho, com campo opcional.
 5. **Departamentos de mesmo nome** em plataformas diferentes: separados por padrão ("Vendas · Demo A"), opção "Juntar".
-6. **Skins de terceiros** (Star Wars/Marvel) marcadas `pack:'terceiros'`, ligadas por padrão, com interruptor nos ajustes.
+6. **Skins de terceiros** (Star Wars/Marvel) marcadas `pack:'terceiros'`, desligadas por padrão (prefs `v: 2`: quem tinha prefs salvas sem versão volta a desligado), com interruptor nos ajustes.
 7. **OpenMausBot**: conexão cadastrada desligada na primeira execução. Envio: `message.agent` vai direto ao endereço do bot
    (só 127.0.0.1, como no original) ou cai na frase `[Sala 3D] …` para o bot principal. Pode importar os endereços do
    leitor antigo (pasta com `.sala_hook` e `.sala_hooks/`). O "QUIET_S" (agrupar mudanças a cada 180 s) do
