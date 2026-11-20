@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { RoomEngine } from './engine/engine';
 import { setTimeZone } from './i18n';
-import { setDisabledPacks } from './skins/registry';
+import { allSkins, setDisabledPacks } from './skins/registry';
 import { useUI } from './store';
 import { subscribeState } from './transport';
 import { getEngine, setEngine } from './ui/actions';
@@ -42,7 +42,9 @@ export function App() {
     }, ui.prefs);
     setEngine(e);
     // medidas para o teste de fumaça (sem dados de conversa)
-    (window as unknown as { __salaDebug: () => unknown }).__salaDebug = () => ({ min: e.minDistance(), agents: useUI.getState().room.agents.length });
+    (window as unknown as { __salaDebug: () => unknown }).__salaDebug = () => ({ min: e.minDistance(), agents: useUI.getState().room.agents.length, dock: e.dockFacing() });
+    (window as unknown as { __salaEngine: RoomEngine; __salaSkins: typeof allSkins }).__salaEngine = e; // diagnóstico (scripts/inspect.mjs)
+    (window as unknown as { __salaSkins: typeof allSkins }).__salaSkins = allSkins;
     const off = subscribeState((s) => { useUI.getState().setRoom(s); e.setRoom(s); }, (ok) => useUI.getState().setLink(ok));
     return () => { off(); e.dispose(); setEngine(null); };
   }, []);
@@ -68,20 +70,23 @@ export function App() {
   return (
     <div id="app" ref={appRef}>
       <div id="labels" ref={labelsRef} />
+      {/* faixa invisível no topo para arrastar a janela (o app não tem barra de título no macOS) */}
+      <div id="dragbar" />
       <Rail />
-      <div id="leftcol">
+      {/* painéis da barra lateral: abrem ao lado dela, um de cada vez */}
+      <div id="dock">
         <Hud />
+        <Roster />
+        <Timeline />
         <Settings />
+        <Connections />
       </div>
-      <Roster />
-      <Timeline />
       {windows.map((id, i) => {
         const a = agentById.get(id);
         return a ? <ChatWindow key={id} a={a} index={i} z={21 + i} /> : null;
       })}
       <SkinMenu />
       <ComposeBox />
-      <Connections />
       <Toast />
       <div id="veil" style={{ opacity: ready ? 0 : 1 }} />
     </div>

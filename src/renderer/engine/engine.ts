@@ -4,15 +4,17 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { computeLayout, computeMeetings, DEPT_Z0, DEPT_Z1, DOCK, dockSlot, ROOM_D, ROOM_W, seatAt, TABLE_R, ZONE, zoneSlot, type DeptLayout, type Meeting, type RoomLayout } from '@shared/layout';
+import { BASE_DIMS, computeLayout, computeMeetings, DEPT_Z1, DOCK, dockSlot, seatAt, TABLE_R, ZONE, zoneSlot, type DeptLayout, type Meeting, type RoomDims, type RoomLayout } from '@shared/layout';
 import type { Agent, AgentId, RoomEvent, RoomState, Status } from '@shared/types';
 import { css } from '../avatar';
+import { splitDoing } from '../doing';
 import { hm, statusText, t as tr } from '../i18n';
 import { resolveSkin, skinCanvas, type Skin } from '../skins/registry';
 import type { Prefs } from '../store';
 import { BotView, damp, restExpr, STATUS_COLOR } from './bot';
-import { crispText } from './geometry';
+import { bodyUShift, crispText, GEO } from './geometry';
 import { makeHolo } from './holo';
+import { playBlip } from './blip';
 
 export interface EngineCallbacks {
   openAgent(id: AgentId): void;
@@ -28,8 +30,7 @@ interface Step { bot: AgentId; text?: string; walkTo?: AgentId }
 
 const ROT = [0.024, 0.05, 0.11];
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
-const HOME_CAM = new THREE.Vector3(10, 8, 15);
-const HOME_TGT = new THREE.Vector3(0, 0.6, 0);
+const BASE_CAM_OFF = new THREE.Vector3(10, 7.4, 15);
 const nowMs = () => performance.timeOrigin + performance.now();
 const norm = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -40,6 +41,11 @@ export class RoomEngine {
   private controls: OrbitControls;
   private floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
   private grid: THREE.GridHelper;
+  private sun!: THREE.DirectionalLight;
+  private dimsKey = '';
+  /** vista inicial ("Ver tudo"): acompanha o tamanho da arena */
+  private homeCam = new THREE.Vector3(10, 8, 15);
+  private homeTgt = new THREE.Vector3(0, 0.6, 0);
   private sign: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private signKey = '';
   private zoneGroup = new THREE.Group();
@@ -50,12 +56,13 @@ export class RoomEngine {
   private holo = makeHolo(STATUS_COLOR.working);
   private bots = new Map<AgentId, BotView>();
   private skinTex = new Map<string, THREE.Texture>();
-  private layout: RoomLayout = { depts: [], deptOf: new Map(), spots: new Map(), order: [] };
+  private layout: RoomLayout = { dims: BASE_DIMS, depts: [], deptOf: new Map(), spots: new Map(), order: [] };
   private meetings: Meeting[] = [];
   private shapeKey = '';
   private room: RoomState = { at: 0, agents: [], groups: [], events: [], connectors: [] };
   private prefs: Prefs;
   private seenEv = new Set<string>();
+  private lastDoing = new Map<AgentId, string>();
   private queue: Step[] = [];
   private scriptRunning = false;
   private focus: { bot: BotView | null; t: 0 | number } | null = null;
@@ -68,7 +75,6 @@ export class RoomEngine {
   private cleanups: (() => void)[] = [];
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
-  private actx: AudioContext | null = null;
   private first = true;
   private readyFired = false;
   private tmp = new THREE.Vector3();
@@ -82,9 +88,11 @@ export class RoomEngine {
     this.scene.background = new THREE.Color(0x070a12);
     this.scene.fog = new THREE.Fog(0x070a12, 22, 44);
     this.camera = new THREE.PerspectiveCamera(46, w / h, 0.1, 120);
-    this.camera.position.copy(HOME_CAM);
+    this.camera.position.copy(this.homeCam);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // até 1,5x: em tela retina, 2x custava ~40% dos quadros sem ganho visível; cai sozinho se ficar lento (adaptQuality)
+    this.pixelRatio = Math.min(window.devicePixelRatio, 1.5);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(w, h);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoftShadowMap foi removido no three 0.18x
@@ -98,7 +106,7 @@ export class RoomEngine {
     } catch { /* sem ambiente */ }
 
     const c = (this.controls = new OrbitControls(this.camera, this.renderer.domElement));
-    c.target.copy(HOME_TGT);
+    c.target.copy(this.homeTgt);
     c.enableDamping = true;
     c.minDistance = 1.2;
     c.maxDistance = 60;
@@ -115,12 +123,12 @@ export class RoomEngine {
     });
     c.addEventListener('end', () => this.cb.cameraChanged(this.camState()));
     // o giro segue o relógio, então continua do mesmo ponto quando a página é recarregada
-    if (prefs.rotate) this.camera.position.copy(c.target).add(new THREE.Vector3(10, 7.4, 15).applyAxisAngle(Y_AXIS, ((this.rotMs / 1000) * ROT[prefs.speed]) % (Math.PI * 2)));
+    if (prefs.rotate) this.camera.position.copy(c.target).add(BASE_CAM_OFF.clone().applyAxisAngle(Y_AXIS, ((this.rotMs / 1000) * ROT[prefs.speed]) % (Math.PI * 2)));
     else if (prefs.cam) { this.camera.position.fromArray(prefs.cam.p); c.target.fromArray(prefs.cam.t); }
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.25));
     this.scene.add(new THREE.HemisphereLight(0xa9c8ff, 0x101522, 0.35));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    const sun = (this.sun = new THREE.DirectionalLight(0xffffff, 1.5));
     sun.position.set(8, 16, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -129,7 +137,7 @@ export class RoomEngine {
     this.scene.add(sun);
 
     // sala aberta, sem paredes
-    this.floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), new THREE.MeshStandardMaterial({ color: 0x0d1220, roughness: 0.32, metalness: 0.55, envMapIntensity: 0.35 }));
+    this.floor = new THREE.Mesh(new THREE.PlaneGeometry(BASE_DIMS.roomW, BASE_DIMS.roomD), new THREE.MeshStandardMaterial({ color: 0x0d1220, roughness: 0.32, metalness: 0.55, envMapIntensity: 0.35 }));
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.receiveShadow = true;
     this.scene.add(this.floor);
@@ -140,7 +148,7 @@ export class RoomEngine {
     gm.opacity = 0.32;
     this.scene.add(this.grid);
     this.sign = new THREE.Mesh(new THREE.PlaneGeometry(8.8, 1.1), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
-    this.sign.position.set(0, 4.3, -ROOM_D / 2 + 0.06);
+    this.sign.position.set(0, 4.3, -BASE_DIMS.roomD / 2 + 0.06);
     this.scene.add(this.sign);
     this.buildZone();
     this.scene.add(this.deptGroup, this.dockGroup, this.zoneGroup);
@@ -158,6 +166,7 @@ export class RoomEngine {
     ro.observe(app);
     this.cleanups.push(() => ro.disconnect());
     this.applyPrefs();
+    this.watchPauses();
     this.animate();
   }
 
@@ -200,7 +209,8 @@ export class RoomEngine {
     this.clearGroup(this.deptGroup);
     this.tables = [];
     for (const D of this.layout.depts) {
-      const w = D.x1 - D.x0, d = DEPT_Z1 - DEPT_Z0, cx = D.tx, cz = (DEPT_Z0 + DEPT_Z1) / 2;
+      const z0 = this.layout.dims.z0;
+      const w = D.x1 - D.x0, d = DEPT_Z1 - z0, cx = D.tx, cz = (z0 + DEPT_Z1) / 2;
       const pad = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: D.color, transparent: true, opacity: 0.07, depthWrite: false, toneMapped: false }));
       pad.rotation.x = -Math.PI / 2;
       pad.position.set(cx, 0.008, cz);
@@ -233,24 +243,84 @@ export class RoomEngine {
     }
   }
 
-  private buildDock(n: number) {
-    if (this.dockSlots.length === n) return;
+  /** Ajusta piso, grade, letreiro, sombra, neblina e vista inicial ao tamanho da arena. Devolve true se mudou. */
+  private applyDims(d: RoomDims): boolean {
+    const key = [d.roomW, d.roomD, d.cz, d.dockPerRow, d.dockZ].map((v) => v.toFixed(2)).join('|');
+    if (key === this.dimsKey) return false;
+    const firstDims = !this.dimsKey;
+    this.dimsKey = key;
+    this.floor.geometry.dispose();
+    this.floor.geometry = new THREE.PlaneGeometry(d.roomW, d.roomD);
+    this.floor.position.z = d.cz;
+    const gsize = Math.ceil(Math.max(d.roomW, d.roomD) + 2);
+    const gm = this.grid.material as THREE.Material;
+    const opacity = gm.opacity;
+    this.scene.remove(this.grid);
+    this.grid.geometry.dispose();
+    gm.dispose();
+    this.grid = new THREE.GridHelper(gsize, gsize, 0x2f7cff, 0x1b3a6e);
+    this.grid.position.set(0, 0.006, d.cz);
+    const ng = this.grid.material as THREE.Material;
+    ng.transparent = true;
+    ng.opacity = opacity;
+    this.scene.add(this.grid);
+    this.sign.position.set(0, 4.3 * Math.min(d.scale, 1.6), d.cz - d.roomD / 2 + 0.06);
+    this.sign.scale.setScalar(Math.min(d.scale, 1.6));
+    const sc = this.sun.shadow.camera;
+    const half = Math.max(d.roomW, d.roomD) / 2 + 3;
+    Object.assign(sc, { left: -half, right: half, top: half, bottom: -half });
+    sc.updateProjectionMatrix();
+    this.sun.position.set(8 * d.scale, 16 * d.scale, 9 * d.scale + d.cz);
+    this.sun.target.position.set(0, 0, d.cz);
+    this.sun.target.updateMatrixWorld();
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = 22 * d.scale;
+    fog.far = 44 * d.scale;
+    this.camera.far = Math.max(120, 120 * d.scale);
+    this.camera.updateProjectionMatrix();
+    this.controls.maxDistance = 60 * Math.max(1, d.scale);
+    const prevCam = this.homeCam.clone(), prevTgt = this.homeTgt.clone();
+    this.homeTgt.set(0, 0.6, d.cz * 0.5);
+    this.homeCam.set(10, 8, 15).multiplyScalar(d.scale).add(new THREE.Vector3(0, 0, d.cz * 0.5));
+    // a câmera ainda na vista inicial (ou girando sozinha) acompanha a arena; uma vista escolhida pelo dono fica
+    const atHome = this.camera.position.distanceTo(prevCam) < 0.5 && this.controls.target.distanceTo(prevTgt) < 0.5;
+    if ((firstDims && !this.prefs.cam) || this.prefs.rotate || atHome) {
+      const off = this.camera.position.clone().sub(this.controls.target);
+      const want = this.homeCam.distanceTo(this.homeTgt);
+      this.controls.target.copy(this.homeTgt);
+      if (this.prefs.rotate) off.setLength(want);
+      else off.copy(this.homeCam).sub(this.homeTgt);
+      this.camera.position.copy(this.homeTgt).add(off);
+    }
+    return true;
+  }
+
+  private buildDock(n: number, force = false) {
+    if (this.dockSlots.length === n && !force) return;
+    const d = this.layout.dims;
     this.clearGroup(this.dockGroup);
     const old = this.dockSlots;
     this.dockSlots = [];
     if (!n) return;
-    const w = n * DOCK.step + 0.3, cx = DOCK.x0 + ((n - 1) * DOCK.step) / 2;
-    const base = new THREE.Mesh(new THREE.BoxGeometry(w, 0.03, 1.0), new THREE.MeshStandardMaterial({ color: 0x141a28, roughness: 0.35, metalness: 0.7 }));
-    base.position.set(cx, 0.015, DOCK.z);
-    base.receiveShadow = true;
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(w, 0.012, 0.03), new THREE.MeshBasicMaterial({ color: 0x49d17a, toneMapped: false }));
-    edge.position.set(cx, 0.034, DOCK.z + 0.5);
-    this.dockGroup.add(base, edge);
+    // uma placa por fileira; a da frente leva a borda verde
+    for (let row = 0; row * d.dockPerRow < n; row++) {
+      const cnt = Math.min(d.dockPerRow, n - row * d.dockPerRow);
+      const w = cnt * DOCK.step + 0.3, cx = d.dockX0 + ((cnt - 1) * DOCK.step) / 2, z = dockSlot(row * d.dockPerRow, d).z;
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w, 0.03, 1.0), new THREE.MeshStandardMaterial({ color: 0x141a28, roughness: 0.35, metalness: 0.7 }));
+      base.position.set(cx, 0.015, z);
+      base.receiveShadow = true;
+      this.dockGroup.add(base);
+      if (row === 0) {
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(w, 0.012, 0.03), new THREE.MeshBasicMaterial({ color: 0x49d17a, toneMapped: false }));
+        edge.position.set(cx, 0.034, z + 0.5);
+        this.dockGroup.add(edge);
+      }
+    }
     for (let k = 0; k < n; k++) {
       const m = new THREE.MeshBasicMaterial({ color: 0x49d17a, transparent: true, opacity: 0.12, toneMapped: false, side: THREE.DoubleSide, depthWrite: false });
       const r = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.36, 40), m);
       r.rotation.x = -Math.PI / 2;
-      const p = dockSlot(k);
+      const p = dockSlot(k, d);
       r.position.set(p.x, 0.034, p.z);
       this.dockGroup.add(r);
       const keep = old[k]?.bot && this.bots.has(old[k].bot!.d.id) ? old[k].bot : null;
@@ -259,7 +329,7 @@ export class RoomEngine {
     for (const b of this.bots.values()) if (b.dockSlot >= n || (b.dockSlot >= 0 && this.dockSlots[b.dockSlot]?.bot !== b)) b.dockSlot = -1;
     const lb = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.25), new THREE.MeshBasicMaterial({ map: crispText(tr('dock'), '#8ff0b4', this.aniso()), transparent: true, depthWrite: false, toneMapped: false }));
     lb.rotation.x = -Math.PI / 2;
-    lb.position.set(DOCK.x0 + 0.75, 0.012, DOCK.z + 0.78);
+    lb.position.set(d.dockX0 + 0.75, 0.012, d.dockZ + 0.78);
     this.dockGroup.add(lb);
   }
 
@@ -312,6 +382,7 @@ export class RoomEngine {
   }
 
   private relayout() {
+    this.lastAction = 'layout refeito';
     const order: string[] = [];
     for (const c of this.room.connectors) for (const d of c.departments ?? []) if (!order.includes(d)) order.push(d);
     this.layout = computeLayout(this.room.agents, {
@@ -341,10 +412,11 @@ export class RoomEngine {
         if (!this.first) b.newcomer = true;
       }
       b.spot.set(p.x, 0, p.z);
-      b.spotYaw = Math.atan2(HOME_CAM.x - p.x, HOME_CAM.z - p.z) + b.userYaw;
+      b.spotYaw = Math.atan2(this.homeCam.x - p.x, this.homeCam.z - p.z) + b.userYaw;
     }
+    const grew = this.applyDims(this.layout.dims);
     this.buildDepts();
-    this.buildDock(this.room.agents.length);
+    this.buildDock(this.room.agents.length, grew);
     this.deptGroup.visible = this.prefs.depts;
     this.cb.layoutChanged(this.layout.depts);
   }
@@ -408,7 +480,8 @@ export class RoomEngine {
       t = new THREE.CanvasTexture(skinCanvas(s));
       t.colorSpace = THREE.SRGBColorSpace;
       t.wrapS = THREE.RepeatWrapping;
-      t.offset.x = 0.5;
+      // 0,5 = rosto da skin na frente do bot (como na referência, three r160) + correção da versão do three
+      t.offset.x = 0.5 + bodyUShift(GEO.body);
       t.anisotropy = 8;
       this.skinTex.set(s.name, t);
     }
@@ -416,6 +489,7 @@ export class RoomEngine {
   };
 
   applySkins() {
+    if (this.prefs.skins) this.lastAction = 'skins aplicadas';
     for (const b of this.bots.values()) b.setSkin(resolveSkin(b.d.slot, this.prefs.skinOf[b.d.id], this.prefs.skins), this.texFor);
   }
 
@@ -448,11 +522,19 @@ export class RoomEngine {
   private refreshStatus(b: BotView) {
     const st = b.d.status;
     b.baseExpr = restExpr(st);
-    const sub = st === 'working' ? b.d.doing || statusText('working') : st === 'available' ? b.d.role || b.d.department : statusText(st);
+    const dg = splitDoing(b.d.doing);
+    const sub = st === 'working' ? dg.label || statusText('working') : st === 'available' ? b.d.role || b.d.department : statusText(st);
     const nx = b.d.next ? ' · ⏰ ' + hm(b.d.next.at) : '';
     b.lName.textContent = b.d.name;
     b.lDot.style.background = css(STATUS_COLOR[st]);
     b.lRole.textContent = sub + nx;
+    // frase de conversa: aparece uma vez como balão em cima do bot (se não veio já como fala)
+    const said = this.lastDoing.get(b.d.id);
+    if (st === 'working' && dg.speech && dg.speech !== said) {
+      this.lastDoing.set(b.d.id, dg.speech);
+      const dup = this.room.events.some((e) => e.from === b.d.id && e.at > Date.now() - 120_000 && e.text.trim() === dg.speech);
+      if (!dup) this.queue.push({ bot: b.d.id, text: dg.speech });
+    } else if (!dg.speech) this.lastDoing.delete(b.d.id);
   }
 
   private updateOverlays() {
@@ -516,7 +598,7 @@ export class RoomEngine {
     }
     for (const b of bots) {
       const k = ws.indexOf(b);
-      if (b.wantDock) { const p = dockSlot(b.dockSlot); b.home.set(p.x, 0, p.z); b.homeYaw = 0; }
+      if (b.wantDock) { const p = dockSlot(b.dockSlot, this.layout.dims); b.home.set(p.x, 0, p.z); b.homeYaw = 0; }
       else if (k >= 0) { const sl = zoneSlot(k, ws.length); b.home.set(sl.x, 0, sl.z); b.homeYaw = 0; }
       else if (seat.has(b)) { const { M, k: i } = seat.get(b)!; const s = seatAt(M, i, M.members.length); b.home.set(s.x, 0, s.z); b.homeYaw = s.yaw; }
       else { b.home.copy(b.spot); b.homeYaw = b.spotYaw; }
@@ -538,6 +620,12 @@ export class RoomEngine {
   }
 
   // ---------- caminhada, fala, roteiro ----------
+  /** Mesas de reunião como obstáculos fixos: raio da mesa + corpo do bot (0,3) + folga. As cadeiras ficam a 1,15. */
+  private static readonly TABLE_CLEAR = TABLE_R + 0.34;
+  private nearTable(x: number, z: number, r = RoomEngine.TABLE_CLEAR): boolean {
+    return this.layout.depts.some((D) => Math.hypot(x - D.tx, z - D.tz) < r);
+  }
+
   private walkTo(b: BotView, target: BotView | null, done: (() => void) | null) {
     const a = b.group.position.clone();
     let dest = b.home.clone();
@@ -549,7 +637,7 @@ export class RoomEngine {
       // ponto livre em volta do outro bot (ninguém parado nem a caminho dali)
       for (const da of [0, 0.75, -0.75, 1.5, -1.5, 2.25, -2.25, Math.PI]) {
         dest = new THREE.Vector3(tp.x + Math.sin(a0 + da) * 1.05, 0, tp.z + Math.cos(a0 + da) * 1.05);
-        const busy = [...this.bots.values()].some((o) => o !== b && o !== target && Math.hypot((o.move ? o.move.c.x : o.group.position.x) - dest.x, (o.move ? o.move.c.z : o.group.position.z) - dest.z) < 0.8);
+        const busy = this.nearTable(dest.x, dest.z, RoomEngine.TABLE_CLEAR + 0.05) || [...this.bots.values()].some((o) => o !== b && o !== target && Math.hypot((o.move ? o.move.c.x : o.group.position.x) - dest.x, (o.move ? o.move.c.z : o.group.position.z) - dest.z) < 0.8);
         if (!busy) break;
       }
       b.partner = target;
@@ -570,20 +658,7 @@ export class RoomEngine {
   }
 
   private blip() {
-    if (!this.prefs.sound || !this.actx) return;
-    try {
-      const t0 = this.actx.currentTime, o = this.actx.createOscillator(), g = this.actx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(620, t0);
-      o.frequency.exponentialRampToValueAtTime(940, t0 + 0.09);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.07, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
-      o.connect(g);
-      g.connect(this.actx.destination);
-      o.start(t0);
-      o.stop(t0 + 0.26);
-    } catch { /* sem som */ }
+    if (this.prefs.sound) playBlip();
   }
 
   private sayTo(b: BotView, text: string, opts: { pending?: boolean; done?: () => void } = {}) {
@@ -608,6 +683,17 @@ export class RoomEngine {
       const al = ox * ux + oz * uz, la = ox * -uz + oz * ux;
       if (Math.abs(al) >= RR || Math.abs(la) >= RR) continue;
       const need = Math.sqrt(RR * RR - al * al) - Math.abs(la);
+      if (need <= 0) continue;
+      const side = Math.abs(la) > 0.02 ? -Math.sign(la) : v.side || (v.side = Math.sin(b.phase * 7) > 0 ? 1 : -1);
+      sh += side * need;
+    }
+    // mesas no caminho: contorna do mesmo jeito, com raio maior
+    const RT = TABLE_R + 0.45;
+    for (const D of this.layout.depts) {
+      const ox = D.tx - tmp.x, oz = D.tz - tmp.z;
+      const al = ox * ux + oz * uz, la = ox * -uz + oz * ux;
+      if (Math.abs(al) >= RT || Math.abs(la) >= RT) continue;
+      const need = Math.sqrt(RT * RT - al * al) - Math.abs(la);
       if (need <= 0) continue;
       const side = Math.abs(la) > 0.02 ? -Math.sign(la) : v.side || (v.side = Math.sin(b.phase * 7) > 0 ? 1 : -1);
       sh += side * need;
@@ -658,6 +744,19 @@ export class RoomEngine {
       const f = p.move || q.move ? 1 : Math.min(1, dt * 8);
       pp.x += nx * ov * wp * f; pp.z += nz * ov * wp * f;
       qp.x -= nx * ov * wq * f; qp.z -= nz * ov * wq * f;
+    }
+    // ninguém atravessa uma mesa: quem encostar é empurrado para a borda (a mesa não se mexe)
+    const RC = RoomEngine.TABLE_CLEAR;
+    for (const b of bots) {
+      const p = b.group.position;
+      for (const D of this.layout.depts) {
+        let dx = p.x - D.tx, dz = p.z - D.tz;
+        const d = Math.hypot(dx, dz);
+        if (d >= RC) continue;
+        if (d < 1e-3) { dx = 0; dz = 1; } else { dx /= d; dz /= d; }
+        p.x = D.tx + dx * RC;
+        p.z = D.tz + dz * RC;
+      }
     }
   }
 
@@ -798,10 +897,10 @@ export class RoomEngine {
     f.t += dt;
     const c = this.controls;
     if (f.bot) this.fTgt.set(f.bot.group.position.x, 0.5, f.bot.group.position.z);
-    else this.fTgt.copy(HOME_TGT);
-    const wantDist = f.bot ? 3.6 : HOME_CAM.distanceTo(HOME_TGT);
+    else this.fTgt.copy(this.homeTgt);
+    const wantDist = f.bot ? 3.6 : this.homeCam.distanceTo(this.homeTgt);
     this.fOff.subVectors(this.camera.position, c.target);
-    if (!f.bot) this.fOff.lerp(this.tmp.subVectors(HOME_CAM, HOME_TGT), 1 - Math.exp(-4 * dt));
+    if (!f.bot) this.fOff.lerp(this.tmp.subVectors(this.homeCam, this.homeTgt), 1 - Math.exp(-4 * dt));
     else if (f.t < 1.6) {
       const d = damp(this.fOff.length(), wantDist, 4, dt);
       if (this.fOff.y / this.fOff.length() < 0.28) this.fOff.y = damp(this.fOff.y, this.fOff.length() * 0.32, 4, dt);
@@ -836,7 +935,6 @@ export class RoomEngine {
     on(window, 'keydown', (e: KeyboardEvent) => { if (e.code === 'Space' && !typing(e)) { e.preventDefault(); if (!e.repeat) setPan(true); } });
     on(window, 'keyup', (e: KeyboardEvent) => { if (e.code === 'Space') setPan(false); });
     on(window, 'blur', () => setPan(false));
-    on(window, 'pointerdown', () => { if (!this.actx) try { this.actx = new AudioContext(); } catch { /* sem som */ } });
     on(el, 'pointerdown', (e: PointerEvent) => { this.downAt = [e.clientX, e.clientY]; });
     on(el, 'pointerup', (e: PointerEvent) => {
       if (!this.downAt) return;
@@ -868,8 +966,40 @@ export class RoomEngine {
   }
 
   // ---------- laço ----------
+  private frameMs: number[] = [];
+  private lastFrame = 0;
+  private pixelRatio = 1;
+  private qualityAt = 0;
+
+  /** A cada 3 s: se a média passar de 24 ms por quadro (< ~42 fps), reduz a resolução em 0,25 (mínimo 1x). */
+  private adaptQuality(now: number) {
+    if (now - this.qualityAt < 3000 || this.frameMs.length < 90 || document.hidden) return;
+    this.qualityAt = now;
+    const recent = this.frameMs.slice(-90);
+    const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+    if (avg > 24 && this.pixelRatio > 1) {
+      this.pixelRatio = Math.max(1, this.pixelRatio - 0.25);
+      this.renderer.setPixelRatio(this.pixelRatio);
+      this.resize();
+      this.frameMs = [];
+    }
+  }
+
+  /** Tempos de quadro dos últimos ~5 s (para diagnóstico). */
+  frameStats() {
+    const f = this.frameMs.slice(1);
+    if (!f.length) return null;
+    const sorted = f.slice().sort((a, b) => a - b);
+    const avg = f.reduce((s, x) => s + x, 0) / f.length;
+    return { frames: f.length, fps: Math.round(1000 / avg), p95: Math.round(sorted[Math.floor(f.length * 0.95)]), max: Math.round(sorted[f.length - 1]), over50: f.filter((x) => x > 50).length };
+  }
+
   private animate = () => {
     this.raf = requestAnimationFrame(this.animate);
+    const nowF = performance.now();
+    if (this.lastFrame) { this.frameMs.push(nowF - this.lastFrame); if (this.frameMs.length > 300) this.frameMs.shift(); }
+    this.lastFrame = nowF;
+    this.adaptQuality(nowF);
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 0.05);
     const t = this.timer.getElapsed();
@@ -881,7 +1011,13 @@ export class RoomEngine {
     for (const b of this.bots.values()) {
       this.updateMove(b, dt);
       this.updateSay(b, dt);
-      b.updateBody(t, dt, this.prefs.screens, b.dockSlot >= 0 ? this.dockSlots[b.dockSlot]?.mat : undefined);
+      // na recarga só o bot em foco acompanha a câmera (inclusive no giro); os outros ficam parados na
+      // direção da recarga, sem girar junto com a tela
+      if (b.wantDock && !b.move && !b.say && b.group.position.distanceTo(b.home) < 0.3) {
+        b.targetYaw = this.focus?.bot === b ? Math.atan2(this.camera.position.x - b.group.position.x, this.camera.position.z - b.group.position.z) : b.homeYaw;
+      }
+      // sentado numa reunião, a tela entraria no tampo da mesa: fica escondida
+      b.updateBody(t, dt, this.prefs.screens && !this.inMeeting(b), b.dockSlot >= 0 ? this.dockSlots[b.dockSlot]?.mat : undefined);
     }
     this.separate(dt);
     this.separate(dt);
@@ -899,12 +1035,38 @@ export class RoomEngine {
     if (!this.readyFired) { this.readyFired = true; requestAnimationFrame(() => this.cb.ready()); }
   };
 
+  /** Pausas longas (> 400 ms) vão para o log do app com a última ação conhecida, para achar travamentos. */
+  lastAction = 'início';
+  private watchPauses() {
+    try {
+      const po = new PerformanceObserver((l) => {
+        for (const e of l.getEntries()) if (e.duration > 400) console.warn(`[sala] pausa de ${Math.round(e.duration)} ms (última ação: ${this.lastAction}; ${this.bots.size} bots)`);
+      });
+      po.observe({ type: 'longtask', buffered: false });
+      this.cleanups.push(() => po.disconnect());
+    } catch { /* navegador sem longtask */ }
+  }
+
   /** Para testes: menor distância entre dois bots agora. */
   minDistance(): number {
     const bs = [...this.bots.values()];
     let m = Infinity;
     for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) m = Math.min(m, bs[i].group.position.distanceTo(bs[j].group.position));
     return m;
+  }
+
+  /** Para o teste de fumaça: quantos bots parados na recarga estão de frente para a câmera e quantos estão em foco. */
+  dockFacing(): { docked: number; facingCamera: number; focusedDocked: boolean } {
+    let docked = 0, facing = 0, focusedDocked = false;
+    for (const b of this.bots.values()) {
+      if (!b.wantDock || b.move || b.say || b.group.position.distanceTo(b.home) >= 0.3) continue;
+      docked++;
+      const toCam = Math.atan2(this.camera.position.x - b.group.position.x, this.camera.position.z - b.group.position.z);
+      const d = Math.abs(Math.atan2(Math.sin(toCam - b.group.rotation.y), Math.cos(toCam - b.group.rotation.y)));
+      if (d < 0.15 && Math.abs(Math.atan2(Math.sin(toCam - b.homeYaw), Math.cos(toCam - b.homeYaw))) > 0.15) facing++;
+      if (this.focus?.bot === b) focusedDocked = true;
+    }
+    return { docked, facingCamera: facing, focusedDocked };
   }
 
   dispose() {

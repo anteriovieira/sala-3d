@@ -3,13 +3,14 @@
 
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OpenMausBotReader, said, clean, cleanChat, parseHooks, roomPhrase } from '../src/main/connectors/openmausbot';
 
-const REF = process.env.SALA_REF || '/Users/anteriovieira/.openmausbot/task-workspaces/98748862-b75f-4bf8-98bb-d5e462c84446/8a860dc6-5fd0-4040-b4a9-39dab01616a4/sala-3d-handoff/referencia/sala_watch.py';
+// referência (fora do repositório): SALA_REF aponta para sala_watch.py; sem ela, o teste de comparação é pulado
+const REF = process.env.SALA_REF || join(homedir(), '.openmausbot/task-workspaces/98748862-b75f-4bf8-98bb-d5e462c84446/8a860dc6-5fd0-4040-b4a9-39dab01616a4/sala-3d-handoff/referencia/sala_watch.py');
 
 let root = '';
 let home = '';

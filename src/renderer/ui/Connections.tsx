@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ConfigField, ConnectionEntry, ConnectorKindInfo, LanInfo } from '@shared/types';
 import { useUI } from '../store';
+import { PanelHead } from './Panels';
 
 interface Draft {
   id?: string;
@@ -59,8 +60,7 @@ function Field({ f, d, set }: { f: ConfigField; d: Draft; set: (d: Draft) => voi
 }
 
 export function Connections() {
-  const open = useUI((s) => s.connectionsOpen);
-  const setOpen = useUI((s) => s.setConnectionsOpen);
+  const open = useUI((s) => s.panel === 'connections');
   const states = useUI((s) => s.room.connectors);
   const [kinds, setKinds] = useState<ConnectorKindInfo[]>([]);
   const [list, setList] = useState<ConnectionEntry[]>([]);
@@ -113,12 +113,10 @@ export function Connections() {
   };
 
   return (
-    <div className="backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <div className="composeBox conns-panel" onWheel={(e) => e.stopPropagation()}>
-        <div className="top">
-          <div><h2>Conexões</h2><div className="sub">Plataformas cujos agentes aparecem na sala. As credenciais ficam só neste computador.</div></div>
-          <button className="x" title="Fechar" onClick={() => setOpen(false)}>✕</button>
-        </div>
+    <div className="panel conns-panel glass" onWheel={(e) => e.stopPropagation()}>
+      <PanelHead title="Conexões" />
+      <div className="conns-body">
+        <p className="desc">Plataformas cujos agentes aparecem na sala. As credenciais ficam só neste computador.</p>
         {err ? <div className="note red">{err}</div> : null}
         {draft ? (
           <div className="form">

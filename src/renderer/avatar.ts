@@ -53,9 +53,14 @@ const thumbCache = new Map<string, string>();
 export function skinThumb(s: Skin): string {
   let u = thumbCache.get(s.name);
   if (!u) {
+    // desenha direto no tamanho da miniatura (antes desenhava a skin inteira em 1024×640 para cada uma:
+    // abrir o menu pela primeira vez travava a sala ~2,4 s)
     const c = document.createElement('canvas');
     c.width = c.height = 44;
-    c.getContext('2d')!.drawImage(skinCanvas(s), FX - 170, 40, 340, 340, 0, 0, 44, 44);
+    const g = c.getContext('2d')!;
+    g.scale(44 / 340, 44 / 340);
+    g.translate(-(FX - 170), -40);
+    s.draw(g);
     u = c.toDataURL();
     thumbCache.set(s.name, u);
   }

@@ -2,18 +2,25 @@
 // fala com a janela por IPC e serve a sala para navegadores (local e rede com chave).
 
 import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, appendFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { validateCommand } from '@shared/commands';
 import { IPC, type ConnectionInput } from '@shared/api';
 import type { LanInfo } from '@shared/types';
 import { ConfigStore, type Cipher } from './config';
+import { DEFAULT_GROKBOT_DIR } from './connectors/grokbot';
+import { DEFAULT_OPENBOT_DIR } from './connectors/openbot';
+import { DEFAULT_TUCANO_DIR } from './connectors/tucano';
 import { Hub } from './hub';
 import { factories, kindInfo } from './registry';
 import { RoomServer } from './server';
 
-const log = (m: string) => console.error(new Date().toISOString().slice(11, 19), m); // nunca conteúdo de conversa
+const log = (m: string) => {
+  const line = new Date().toISOString().slice(11, 19) + ' ' + m; // nunca conteúdo de conversa
+  console.error(line);
+  try { appendFileSync(join(app.getPath('userData'), 'sala.log'), line + '\n'); } catch { /* sem log em disco */ }
+};
 
 if (process.env.SALA_USER_DATA) app.setPath('userData', process.env.SALA_USER_DATA);
 
@@ -46,6 +53,16 @@ async function firstRun() {
   // OpenMausBot detectado neste computador: fica cadastrado, desligado, para o dono ligar quando quiser
   if (existsSync(join(homedir(), '.openmausbot', 'bots.json'))) {
     await store.upsert({ kind: 'openmausbot', label: 'OpenMausBot', enabled: false, config: { dataDir: '~/.openmausbot', pollMs: 3000, legacyDir: '' }, secrets: {} });
+  }
+  // OpenBot detectado: mesma regra, cadastrado e desligado
+  if (existsSync(join(DEFAULT_OPENBOT_DIR, 'openbot.db'))) {
+    await store.upsert({ kind: 'openbot', label: 'OpenBot', enabled: false, config: { dataDir: '~/Library/Application Support/OpenBot', pollMs: 3000 }, secrets: {} });
+  }
+  if (existsSync(join(DEFAULT_TUCANO_DIR, 'workspaces.json')) || existsSync(join(DEFAULT_TUCANO_DIR, 'tucano.db'))) {
+    await store.upsert({ kind: 'tucano', label: 'Tucano', enabled: false, config: { dataDir: '~/Library/Application Support/Tucano', pollMs: 3000 }, secrets: {} });
+  }
+  if (existsSync(join(DEFAULT_GROKBOT_DIR, 'sand-client-persistence'))) {
+    await store.upsert({ kind: 'grokbot', label: 'Grok Bot', enabled: false, config: { dataDir: '~/Library/Application Support/Grok Bot', pollMs: 3000 }, secrets: {} });
   }
 }
 
@@ -127,6 +144,8 @@ function createWindow() {
     backgroundColor: '#070a12',
     show: false,
     autoHideMenuBar: true,
+    // macOS: sem a barra de título cinza; a sala vai até o topo e os botões da janela flutuam por cima
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 18, y: 18 } } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -145,6 +164,11 @@ function createWindow() {
     if (!(dev && url.startsWith(dev))) e.preventDefault();
   });
   win.on('closed', () => { win = null; });
+  // travamentos: pausas longas no desenho e janela sem resposta (só medidas, nunca texto de conversa)
+  win.webContents.on('console-message', (e) => { if (e.message.startsWith('[sala]')) log(e.message.slice(0, 200)); });
+  win.on('unresponsive', () => log('[sala] janela sem resposta'));
+  win.on('responsive', () => log('[sala] janela voltou a responder'));
+  win.webContents.on('render-process-gone', (_e, d) => log('[sala] desenho da janela caiu: ' + d.reason));
   if (process.env.SALA_SMOKE) smoke(win, process.env.SALA_SMOKE);
   if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else void win.loadFile(join(rendererDir, 'index.html'));
@@ -180,7 +204,18 @@ function smoke(w: BrowserWindow, dir: string) {
       }
     }
     writeFileSync(join(dir, 'shot-2.png'), (await w.webContents.capturePage()).toPNG());
-    const info = await js(`({ labels: document.querySelectorAll('.bot-label').length, rows: document.querySelectorAll('.r-row').length, windows: document.querySelectorAll('.cwin').length, live: document.getElementById('live')?.textContent, debug: window.__salaDebug && window.__salaDebug() })`);
+    // painéis da barra lateral: começam todos fechados; cada botão abre o seu ao lado da barra e fecha o anterior
+    const tick = () => new Promise((r) => setTimeout(r, 150));
+    const panelsAtStart = await js(`document.querySelectorAll('#dock .panel').length`);
+    await js(`document.querySelector('#rail [data-panel=roster]').click()`); await tick();
+    const rows = await js(`document.querySelectorAll('.r-row').length`);
+    const rosterBox = await js(`(() => { const r = document.getElementById('roster').getBoundingClientRect(), b = document.getElementById('rail').getBoundingClientRect(); return { gap: Math.round(r.left - b.right) }; })()`);
+    await js(`document.querySelector('#rail [data-panel=legend]').click()`); await tick();
+    const afterSwitch = await js(`({ panels: document.querySelectorAll('#dock .panel').length, roster: !!document.getElementById('roster'), live: document.getElementById('live')?.textContent })`);
+    await js(`document.querySelector('#rail [data-panel=legend]').click()`); await tick();
+    const panelsAfterToggle = await js(`document.querySelectorAll('#dock .panel').length`);
+    const info = await js(`({ labels: document.querySelectorAll('.bot-label').length, windows: document.querySelectorAll('.cwin').length, debug: window.__salaDebug && window.__salaDebug() })`);
+    Object.assign(info, { rows, live: afterSwitch.live, panels: { atStart: panelsAtStart, rosterGapFromRail: rosterBox.gap, afterSwitch: afterSwitch.panels, rosterStillOpen: afterSwitch.roster, afterToggleOff: panelsAfterToggle } });
     // servidor para navegadores: estado, página e envio (com e sem a origem certa)
     const base = `http://127.0.0.1:${store.server().localPort}`;
     const http: Record<string, unknown> = {};

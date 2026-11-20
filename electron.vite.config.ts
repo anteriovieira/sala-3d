@@ -7,7 +7,15 @@ const shared = { '@shared': resolve(import.meta.dirname, 'src/shared') };
 export default defineConfig({
   main: {
     resolve: { alias: shared },
-    build: { rollupOptions: { input: { index: resolve(import.meta.dirname, 'src/main/index.ts') } } },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(import.meta.dirname, 'src/main/index.ts'),
+          // thread de leitura dos conectores locais (OpenMausBot, OpenBot); procurada ao lado do index.js
+          readerWorker: resolve(import.meta.dirname, 'src/main/connectors/readerWorker.ts'),
+        },
+      },
+    },
   },
   preload: {
     resolve: { alias: shared },

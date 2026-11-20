@@ -53,6 +53,9 @@ export function savePrefs(p: Prefs) {
   } catch { /* ignora */ }
 }
 
+/** Painéis da barra lateral: abrem ao lado dela, um de cada vez; nenhum aberto ao iniciar. */
+export type PanelId = 'legend' | 'roster' | 'timeline' | 'settings' | 'connections';
+
 export type Compose =
   | { kind: 'dept'; deptKey: string | null }
   | { kind: 'group'; deptKey: string; groupId: string | null };
@@ -66,7 +69,8 @@ export interface UIState {
   pending: Record<AgentId, ChatItem[]>;
   skinMenu: { agentId: AgentId; top: number } | null;
   active: AgentId | null;
-  connectionsOpen: boolean;
+  /** painel aberto ao lado da barra lateral (não é guardado: o app sempre começa com todos fechados) */
+  panel: PanelId | null;
   toast: string | null;
   depts: DeptLayout[];
   setDepts(d: DeptLayout[]): void;
@@ -80,7 +84,9 @@ export interface UIState {
   addPending(id: AgentId, text: string): void;
   setSkinMenu(m: UIState['skinMenu']): void;
   setActive(id: AgentId | null): void;
-  setConnectionsOpen(v: boolean): void;
+  /** abre o painel (fechando o que estiver aberto) ou fecha se já for ele */
+  togglePanel(p: PanelId): void;
+  setPanel(p: PanelId | null): void;
   showToast(msg: string | null): void;
 }
 
@@ -95,7 +101,7 @@ export const useUI = create<UIState>((set, get) => ({
   pending: {},
   skinMenu: null,
   active: null,
-  connectionsOpen: false,
+  panel: null,
   toast: null,
   depts: [],
   setDepts: (depts) => set({ depts }),
@@ -127,6 +133,7 @@ export const useUI = create<UIState>((set, get) => ({
   addPending: (id, text) => set({ pending: { ...get().pending, [id]: [...(get().pending[id] ?? []), { r: 'u', t: text, at: Date.now() }] } }),
   setSkinMenu: (skinMenu) => set({ skinMenu }),
   setActive: (active) => set({ active }),
-  setConnectionsOpen: (connectionsOpen) => set({ connectionsOpen }),
+  togglePanel: (p) => set({ panel: get().panel === p ? null : p }),
+  setPanel: (panel) => set({ panel }),
   showToast: (toast) => set({ toast }),
 }));

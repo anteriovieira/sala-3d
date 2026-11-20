@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, statSync, openSync, readSync, closeSync, exi
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { ReaderThread } from './readerThread';
 import type { AskKind, ChatItem, CommandResult, ConnectorSnapshot, RoomCommand, SnapshotAgent, SnapshotGroup, Status } from '@shared/types';
 import type { AgentConnector, ConnectorFactory } from './types';
 
@@ -27,6 +28,8 @@ const trunc = (s: string, n: number) => { const a = cp(s); return a.length <= n 
 const pyStrip = (s: string) => s.replace(/^\s+|\s+$/g, '');
 const words = (s: string) => s.split(/\s+/).filter(Boolean).join(' ');
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Mesma ordem do SQLite para ids de texto (comparação binária). */
+const binary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function clean(s: unknown, n: number): string {
   let t = String(s ?? '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
@@ -242,10 +245,16 @@ export class OpenMausBotReader {
 
     const m = this.ro('messages.db');
     try {
+      // Última mensagem de texto de cada conversa de bot. Uma consulta por conversa conhecida usa o índice
+      // (thread_id, at) de trás para frente; o "group by" sobre a tabela inteira levava ~0,5 s com 19 mil linhas.
+      // Ordem das conversas igual à do "group by 1" (texto, ordem binária) para manter o desempate.
       const latest = new Map<string, [string, number]>();
-      for (const r of m.prepare("select thread_id, max(at) as at from messages where kind='text' group by 1").all() as { thread_id: string; at: number }[]) {
-        const n = t2b.get(r.thread_id);
-        if (n && r.at > (latest.get(n)?.[1] ?? 0)) latest.set(n, [r.thread_id, r.at]);
+      const last = m.prepare("select at from messages where thread_id=? and kind='text' order by at desc limit 1");
+      for (const th of [...t2b.keys()].sort(binary)) {
+        const r = last.get(th) as { at: number } | undefined;
+        if (!r) continue;
+        const n = t2b.get(th)!;
+        if (r.at > (latest.get(n)?.[1] ?? 0)) latest.set(n, [th, r.at]);
       }
       const q = m.prepare("select role, text, at, json from messages where thread_id=? and kind='text' order by at desc limit 40");
       for (const [n, [th]] of latest) {
@@ -278,7 +287,14 @@ export class OpenMausBotReader {
         }
         bots[n].chat = chat.slice(-12);
       }
-      for (const r of m.prepare("select id, thread_id, text, at, json from messages where kind='text' and role='bot' and at>? order by at").all(now - RECENT_MS) as { id: string; thread_id: string; text: string; at: number; json: string }[]) {
+      // As consultas "recentes" abaixo também vão conversa por conversa (só as de bots e grupos conhecidos,
+      // as únicas que o resultado usa), em vez de varrer a tabela inteira.
+      type RecentRow = { id: string; thread_id: string; text: string; at: number; json: string };
+      const recentQ = m.prepare("select id, thread_id, text, at, json from messages where thread_id=? and kind='text' and role='bot' and at>? order by at");
+      const recent: RecentRow[] = [];
+      for (const th of new Set([...g2n.keys(), ...t2b.keys()])) recent.push(...(recentQ.all(th, now - RECENT_MS) as RecentRow[]));
+      recent.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      for (const r of recent) {
         const first = (r.text || '').replace(/^\s+/, '').slice(0, 1);
         if (!r.text || first === '' || '@{['.includes(first)) continue;
         const room = g2n.get(r.thread_id);
@@ -296,9 +312,10 @@ export class OpenMausBotReader {
         const n = t2b.get(r.thread_id);
         if (n) events.push({ id: r.id, at: r.at, bot: n, text: clean(r.text, 230) });
       }
-      for (const r of m.prepare("select thread_id, max(at) as at from messages where kind='text' and at>? group by 1").all(now - 4 * 60000) as { thread_id: string }[]) {
-        const room = g2n.get(r.thread_id);
-        if (room && gmem[room]?.length) meet.set(room, gmem[room].slice());
+      const anyQ = m.prepare("select 1 from messages where thread_id=? and kind='text' and at>? limit 1");
+      for (const th of [...g2n.keys()].sort(binary)) {
+        const room = g2n.get(th)!;
+        if (gmem[room]?.length && anyQ.get(th, now - 4 * 60000)) meet.set(room, gmem[room].slice());
       }
       const act = m.prepare("select at, json from messages where thread_id=? and kind='activity' order by at desc limit 1");
       for (const [n, ths] of workTh) {
@@ -311,9 +328,10 @@ export class OpenMausBotReader {
       }
       const seen = new Set<string>();
       const spoke = new Map<string, number>();
-      for (const r of m.prepare("select thread_id, max(at) as at from messages where kind='text' and role='bot' and at>? group by 1").all(now - 12 * 3600000) as { thread_id: string; at: number }[]) {
-        const n = t2b.get(r.thread_id);
-        if (n) spoke.set(n, Math.max(spoke.get(n) ?? 0, r.at));
+      const spokeQ = m.prepare("select at from messages where thread_id=? and kind='text' and role='bot' and at>? order by at desc limit 1");
+      for (const [th, n] of t2b) {
+        const r = spokeQ.get(th, now - 12 * 3600000) as { at: number } | undefined;
+        if (r) spoke.set(n, Math.max(spoke.get(n) ?? 0, r.at));
       }
       for (const r of m.prepare('select kind, bot_name, thread_id, title, read, at, body from notification_log where at>? order by at desc').all(now - 7 * 86400000) as { kind: string; bot_name: string; title: string; read: number; at: number; body: string }[]) {
         const bn = r.bot_name;
@@ -441,9 +459,10 @@ export class OpenMausBotConnector implements AgentConnector {
   private mainHook?: string;
   private botHooks = new Map<string, string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private last = '';
   private lastSnap?: ConnectorSnapshot;
   private stopped = false;
+  /** leitura fora do processo principal (ver readerThread.ts) */
+  readonly thread = new ReaderThread('openmausbot');
 
   constructor(private log: (m: string) => void = () => {}) {}
 
@@ -456,6 +475,7 @@ export class OpenMausBotConnector implements AgentConnector {
     this.mainHook = String(config.mainHook || '').trim() || leg.main;
     this.botHooks = new Map([...leg.bots, ...parseHooks(String(config.botHooks || ''))]);
     if (!existsSync(join(this.reader.home, 'bots.json'))) throw new Error('Não achei bots.json em ' + this.reader.home);
+    this.thread.reset();
     this.stopped = false;
   }
 
@@ -463,31 +483,37 @@ export class OpenMausBotConnector implements AgentConnector {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.thread.stop();
   }
 
   subscribe(onSnapshot: (s: ConnectorSnapshot) => void, onError: (e: Error) => void): () => void {
     let alive = true;
     let fails = 0;
-    const loop = () => {
+    const loop = async () => {
       if (!alive || this.stopped) return;
       let wait = this.poll;
       try {
-        const s = this.reader.snapshot();
+        const s = await this.thread.read(this.reader.home, () => this.reader.snapshot());
+        if (!alive || this.stopped) return;
         fails = 0;
-        const key = JSON.stringify(s);
-        this.lastSnap = s;
-        if (key !== this.last) { this.last = key; onSnapshot(s); }
+        if (s) { this.lastSnap = s; onSnapshot(s); }
       } catch (e) {
+        if (!alive || this.stopped) return;
         // arquivo trancado/ausente: registra, espera mais um pouco e tenta de novo
         fails++;
         wait = Math.min(30000, this.poll * Math.min(10, fails));
         this.log('openmausbot: leitura falhou: ' + (e as Error).message);
         onError(e as Error);
       }
-      this.timer = setTimeout(loop, wait);
+      this.timer = setTimeout(() => void loop(), wait);
     };
-    loop();
-    return () => { alive = false; if (this.timer) clearTimeout(this.timer); this.timer = null; };
+    void loop();
+    return () => {
+      alive = false;
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = null;
+      this.thread.stop();
+    };
   }
 
   private nameOf(id: string): string | undefined {

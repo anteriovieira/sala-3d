@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Sala 3D dos Bots: agentes de várias plataformas na mesma sala",
   "private": true,
+  "license": "MIT",
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {

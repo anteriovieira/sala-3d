@@ -45,6 +45,25 @@ function bodyGeometry() {
   return g;
 }
 
+/**
+ * Quanto o "u" do corpo está girado em relação ao three r160 (referência), em voltas.
+ * No r160 a cápsula era um LatheGeometry: u = ângulo/2π, com ângulo = atan2(x, z) (u = 0 na frente, +z).
+ * A cápsula foi reescrita depois e passou a começar um quarto de volta antes (r187: 0,75), o que deixava a
+ * skin de lado (rosto da skin no flanco do bot). Medido na própria geometria para valer em qualquer versão.
+ */
+export function bodyUShift(g: THREE.BufferGeometry): number {
+  const pos = g.attributes.position, uv = g.attributes.uv;
+  let best = -1, bestR = 0;
+  for (let k = 0; k < pos.count; k++) {
+    const u = uv.getX(k), r = Math.hypot(pos.getX(k), pos.getZ(k));
+    if (u > 0.2 && u < 0.8 && r > bestR) { bestR = r; best = k; } // longe da costura, no anel mais largo
+  }
+  if (best < 0) return 0;
+  let a = Math.atan2(pos.getX(best), pos.getZ(best)) / (2 * Math.PI);
+  a = a - uv.getX(best);
+  return Math.round((((a % 1) + 1) % 1) * 1000) / 1000;
+}
+
 /** Coroa dourada de peça única, 5 pontas. */
 function crownGeometry() {
   const N = 100, M = 6, pos: number[] = [], idx: number[] = [];
@@ -69,7 +88,8 @@ export const GEO = {
   mouthO: new THREE.SphereGeometry(0.024, 16, 12),
   arm: new THREE.CapsuleGeometry(0.06, 0.23, 8, 18),
   foot: footGeometry(),
-  console: bothSides(new THREE.CylinderGeometry(0.85, 0.85, 0.6, 32, 1, true, -0.62, 1.24).translate(0, 0, -0.85)),
+  // tela: curva suave (raio 1,25, ~47°, 1,02 × 0,5), côncava para o bot. A original (raio 0,85, 71°) virava um "U" em volta do corpo.
+  console: bothSides(new THREE.CylinderGeometry(1.25, 1.25, 0.5, 32, 1, true, -0.41, 0.82).translate(0, 0, -1.25)),
   ring: new THREE.RingGeometry(0.43, 0.5, 48),
   crown: crownGeometry(),
   crownRim: new THREE.TorusGeometry(0.093, 0.015, 12, 40),

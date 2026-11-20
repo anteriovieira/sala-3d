@@ -40,7 +40,28 @@ export interface DeptLayout {
   groups: string[];
 }
 
+/** Medidas da arena: crescem com o número de agentes e departamentos (a base é a sala original 22 × 16). */
+export interface RoomDims {
+  halfW: number;
+  /** fundo das faixas de departamento (a frente fica em DEPT_Z1) */
+  z0: number;
+  dockX0: number;
+  dockZ: number;
+  dockPerRow: number;
+  dockRows: number;
+  roomW: number;
+  roomD: number;
+  /** centro do piso em z */
+  cz: number;
+  /** quanto a arena cresceu em relação à original (≥ 1) */
+  scale: number;
+}
+
+export const BASE_DIMS: RoomDims = { halfW: HALF_W, z0: DEPT_Z0, dockX0: DOCK.x0, dockZ: DOCK.z, dockPerRow: 24, dockRows: 1, roomW: ROOM_W, roomD: ROOM_D, cz: 0, scale: 1 };
+const DOCK_ROW_STEP = 1.0;
+
 export interface RoomLayout {
+  dims: RoomDims;
   depts: DeptLayout[];
   deptOf: Map<AgentId, string>;
   spots: Map<AgentId, { x: number; z: number }>;
@@ -113,18 +134,38 @@ export function computeLayout(
     D.members.push(a.id);
     deptOf.set(a.id, D.key);
   }
-  // largura de cada faixa proporcional a nº de bots + 3; espaço de 0.5 entre elas
+  // largura de cada faixa proporcional a nº de bots + 3; espaço de 0.5 entre elas.
+  // Com muitos bots a sala alarga: cada unidade de peso tem pelo menos 0,75 de largura.
   const gap = 0.5;
   const wt = (D: DeptLayout) => D.members.length + 3;
   const tot = depts.reduce((s, D) => s + wt(D), 0) || 1;
-  const avail = 2 * HALF_W - gap * Math.max(0, depts.length - 1);
-  let x = -HALF_W;
+  const gaps = gap * Math.max(0, depts.length - 1);
+  const avail = Math.max(2 * HALF_W - gaps, 0.75 * tot);
+  const halfW = (avail + gaps) / 2;
+  let x = -halfW;
   for (const D of depts) {
     D.x0 = x;
     D.x1 = x + (avail * wt(D)) / tot;
     D.tx = (D.x0 + D.x1) / 2;
     x = D.x1 + gap;
   }
+  // faixas lotadas: a sala fica mais funda para trás (área de ~3,2 por bot)
+  let extra = 0;
+  for (const D of depts) {
+    const w = D.x1 - D.x0, mx = Math.min(0.9, w * 0.25), usable = Math.max(0.5, w - 2 * mx);
+    extra = Math.max(extra, (D.members.length * 3.2) / usable - (DEPT_Z1 - 3.1 - (DEPT_Z0 + 1.0)));
+  }
+  const z0 = DEPT_Z0 - Math.min(10, Math.max(0, extra));
+  // recarga: fileiras atrás das faixas, quantas forem precisas
+  const dockX0 = -halfW - 0.85;
+  const dockPerRow = Math.max(1, Math.floor((2 * halfW + 1.7) / DOCK.step) + 1);
+  const dockRows = Math.max(1, Math.ceil(agents.length / dockPerRow));
+  const dockZ = z0 - 1.0;
+  const front = ROOM_D / 2;
+  const back = Math.min(-ROOM_D / 2, dockZ - (dockRows - 1) * DOCK_ROW_STEP - 0.8);
+  const roomW = Math.max(ROOM_W, 2 * halfW + 3.4);
+  const roomD = front - back;
+  const dims: RoomDims = { halfW, z0, dockX0, dockZ, dockPerRow, dockRows, roomW, roomD, cz: (front + back) / 2, scale: Math.max(roomW / ROOM_W, roomD / ROOM_D) };
   // lugar de cada bot: sorteio com semente fixa, distância mínima 2.6
   const rng = makeRng(opts.seed ?? LAYOUT_SEED);
   const rand = (a: number, b: number) => a + rng() * (b - a);
@@ -137,7 +178,7 @@ export function computeLayout(
     let minD = 2.6;
     const mx = Math.min(0.9, (D.x1 - D.x0) * 0.25);
     do {
-      p = { x: rand(D.x0 + mx, D.x1 - mx), z: rand(DEPT_Z0 + 1.0, DEPT_Z1 - 3.1) };
+      p = { x: rand(D.x0 + mx, D.x1 - mx), z: rand(z0 + 1.0, DEPT_Z1 - 3.1) };
       tries++;
       if (tries % 150 === 0) minD *= 0.9;
     } while (pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < minD) && tries < 3000);
@@ -148,7 +189,7 @@ export function computeLayout(
     const D = groupDept(g.members, depts, deptOf);
     if (D) D.groups.push(g.id);
   }
-  return { depts, deptOf, spots, order: sorted.map((a) => a.id) };
+  return { dims, depts, deptOf, spots, order: sorted.map((a) => a.id) };
 }
 
 /** Departamento com mais membros do grupo (empate: o primeiro na ordem das faixas). */
@@ -202,8 +243,9 @@ export function zoneSlot(k: number, n: number): { x: number; z: number } {
   return { x: ZONE.x + (col - (inRow - 1) / 2) * 1.15, z: ZONE.z + 0.25 - row * 0.95 };
 }
 
-export function dockSlot(k: number): { x: number; z: number } {
-  return { x: DOCK.x0 + k * DOCK.step, z: DOCK.z };
+export function dockSlot(k: number, d: RoomDims = BASE_DIMS): { x: number; z: number } {
+  const row = Math.floor(k / d.dockPerRow), col = k % d.dockPerRow;
+  return { x: d.dockX0 + col * DOCK.step, z: d.dockZ - row * DOCK_ROW_STEP };
 }
 
 export function seatAt(m: { x: number; z: number }, k: number, n: number): { x: number; z: number; yaw: number } {

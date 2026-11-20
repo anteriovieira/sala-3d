@@ -1,11 +1,12 @@
-// Barra de ícones, legenda, ajustes e linha do tempo.
+// Barra lateral de ícones e os painéis que ela abre (legenda, ajustes, linha do tempo).
+// Todos começam fechados; cada botão abre o seu painel ao lado da barra e fecha o que estiver aberto.
 
 import { useEffect, useState } from 'react';
 import { hm, hms, t } from '../i18n';
 import { STATUS_COLOR } from '../engine/bot';
 import { css } from '../avatar';
 import { inApp } from '../transport';
-import { useUI, type Prefs } from '../store';
+import { useUI, type PanelId, type Prefs } from '../store';
 import { getEngine } from './actions';
 import { IconAll, IconFull, IconLegend, IconPlug, IconRoster, IconSettings, IconTimeline } from './icons';
 
@@ -19,27 +20,46 @@ export function toggleFull() {
   } catch { /* aparelho sem tela cheia */ }
 }
 
+/** Cabeçalho comum dos painéis: título e botão de fechar. */
+export function PanelHead({ title, children }: { title: string; children?: React.ReactNode }) {
+  const setPanel = useUI((s) => s.setPanel);
+  return (
+    <div className="phead">
+      <span className="ptitle">{title}</span>
+      <span className="pacts">{children}<button className="pclose" title="Fechar (Esc)" onClick={() => setPanel(null)}>✕</button></span>
+    </div>
+  );
+}
+
 export function Rail() {
-  const prefs = useUI((s) => s.prefs);
-  const setPref = useUI((s) => s.setPref);
-  const setConn = useUI((s) => s.setConnectionsOpen);
-  const connOpen = useUI((s) => s.connectionsOpen);
+  const panel = useUI((s) => s.panel);
+  const togglePanel = useUI((s) => s.togglePanel);
+  const setPanel = useUI((s) => s.setPanel);
   const [full, setFull] = useState(isFull());
   useEffect(() => {
     const f = () => setFull(isFull());
     document.addEventListener('fullscreenchange', f);
     return () => document.removeEventListener('fullscreenchange', f);
   }, []);
-  const tg = (k: keyof Prefs, title: string, icon: React.ReactNode) => (
-    <button className={prefs[k] ? 'on' : ''} title={title} onClick={() => setPref(k, !prefs[k] as never)}>{icon}</button>
+  // Esc fecha o painel aberto (se o foco não estiver num campo de texto)
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName || '';
+      if (e.key === 'Escape' && useUI.getState().panel && !/^(TEXTAREA|INPUT|SELECT)$/.test(tag)) setPanel(null);
+    };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [setPanel]);
+  const tg = (p: PanelId, title: string, icon: React.ReactNode) => (
+    <button className={panel === p ? 'on' : ''} title={title} aria-pressed={panel === p} data-panel={p} onClick={() => togglePanel(p)}>{icon}</button>
   );
   return (
     <div id="rail" className="glass">
       {tg('legend', 'Legenda', <IconLegend />)}
       {tg('roster', 'Lista de bots', <IconRoster />)}
       {tg('timeline', t('timeline'), <IconTimeline />)}
-      {tg('open', t('settings'), <IconSettings />)}
-      {inApp() ? <button className={connOpen ? 'on' : ''} title={t('connections')} onClick={() => setConn(!connOpen)}><IconPlug /></button> : null}
+      {tg('settings', t('settings'), <IconSettings />)}
+      {inApp() ? tg('connections', t('connections'), <IconPlug />) : null}
       <div className="sep" />
       {canFull() ? <button className={full ? 'on' : ''} title={full ? t('fullscreenExit') : t('fullscreen')} onClick={toggleFull}><IconFull on={full} /></button> : null}
       <button title={t('viewRoom')} onClick={() => getEngine()?.viewAll()}><IconAll /></button>
@@ -48,20 +68,20 @@ export function Rail() {
 }
 
 export function Hud() {
-  const prefs = useUI((s) => s.prefs);
+  const open = useUI((s) => s.panel === 'legend');
   const link = useUI((s) => s.link);
   const connectors = useUI((s) => s.room.connectors);
   const hasEvents = useUI((s) => s.room.events.length > 0);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i); }, []);
-  if (!prefs.legend) return null;
+  if (!open) return null;
   const rows: [keyof typeof STATUS_COLOR, string][] = [['available', t('legend.available')], ['working', t('legend.working')], ['waiting', t('legend.waiting')], ['problem', t('legend.problem')]];
   return (
-    <div id="hud" className="glass">
-      <h1>
-        {t('title')}
+    <div id="hud" className="panel glass">
+      <PanelHead title={t('title')}>
         <span id="live" className={link ? '' : 'off'}><i /><span>{link ? t('live') + ' · ' + hms(now) : t('offline')}</span></span>
-      </h1>
+      </PanelHead>
+      <div className="pbody">
       <div className="legend">
         {rows.map(([k, label]) => (
           <div key={k} className="legend-row"><span className="legend-dot" style={{ background: css(STATUS_COLOR[k]), color: css(STATUS_COLOR[k]) }} />{label}</div>
@@ -81,13 +101,14 @@ export function Hud() {
       )}
       <div className="hint">{t('legend.hint')}</div>
       {hasEvents ? <button id="replay" onClick={() => getEngine()?.replay()}>{t('replay')}</button> : null}
+      </div>
     </div>
   );
 }
 
 const OPTS: [keyof Prefs, string][] = [
-  ['depts', 'Departamentos'], ['roster', 'Lista de bots'], ['names', 'Nomes dos bots'], ['bubbles', 'Balões de fala'], ['screens', 'Telas dos bots'],
-  ['skins', 'Mostrar skins'], ['zone', 'Área "Aguardando você"'], ['legend', 'Legenda'], ['timeline', 'Linha do tempo'], ['rotate', 'Giro automático'], ['sound', 'Som nas falas'],
+  ['depts', 'Departamentos'], ['names', 'Nomes dos bots'], ['bubbles', 'Balões de fala'], ['screens', 'Telas dos bots'],
+  ['skins', 'Mostrar skins'], ['zone', 'Área "Aguardando você"'], ['rotate', 'Giro automático'], ['sound', 'Som nas falas'],
   ['thirdParty', 'Skins de personagens de terceiros'],
 ];
 const CHOICES: [keyof Prefs, string, string[]][] = [['speed', 'Velocidade do giro', ['Lenta', 'Normal', 'Rápida']], ['size', 'Tamanho dos nomes', ['Pequeno', 'Médio', 'Grande']], ['theme', 'Tema', ['Escuro', 'Claro']]];
@@ -95,10 +116,11 @@ const CHOICES: [keyof Prefs, string, string[]][] = [['speed', 'Velocidade do gir
 export function Settings() {
   const prefs = useUI((s) => s.prefs);
   const setPref = useUI((s) => s.setPref);
-  if (!prefs.open) return null;
+  const open = useUI((s) => s.panel === 'settings');
+  if (!open) return null;
   return (
-    <div id="cfg" className="glass">
-      <div className="chead" onClick={() => setPref('open', false)}><span>{t('settings')}</span><span /></div>
+    <div id="cfg" className="panel glass">
+      <PanelHead title={t('settings')} />
       <div id="cfgBody">
         {OPTS.map(([k, label]) => (
           <div key={k} className={'opt' + (prefs[k] ? ' on' : '')} onClick={() => setPref(k, !prefs[k] as never)}>
@@ -128,17 +150,16 @@ export function Settings() {
 }
 
 export function Timeline() {
-  const prefs = useUI((s) => s.prefs);
-  const setPref = useUI((s) => s.setPref);
+  const open = useUI((s) => s.panel === 'timeline');
   const room = useUI((s) => s.room);
-  if (!prefs.timeline) return null;
+  if (!open) return null;
   const name = (id: string) => room.agents.find((a) => a.id === id)?.name ?? '?';
   const gname = (id: string) => room.groups.find((g) => g.id === id)?.name ?? '?';
   const evs = room.events.slice().reverse();
   return (
-    <div id="tl" className={'glass' + (prefs.tlOpen ? '' : ' closed')}>
-      <div className="chead" onClick={() => setPref('tlOpen', !prefs.tlOpen)}><span>{t('timeline')}</span><span className={prefs.tlOpen ? '' : 'up'} /></div>
-      {prefs.tlOpen ? (
+    <div id="tl" className="panel glass">
+      <PanelHead title={t('timeline')} />
+      {(
         <div id="tlBody">
           {evs.length ? evs.map((e) => (
             <div key={e.id} className="tl-row" title={e.text} onClick={() => getEngine()?.focusAgent(e.from)}>
@@ -148,7 +169,7 @@ export function Timeline() {
             </div>
           )) : <div className="tl-empty">{t('timeline.empty')}</div>}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeLayout, computeMeetings, HALF_W, zoneSlot, type LayoutAgent } from '../src/shared/layout';
+import { computeLayout, computeMeetings, dockSlot, HALF_W, zoneSlot, type LayoutAgent } from '../src/shared/layout';
 
 const mk = (n: number, depts = ['A', 'B', 'C'], con = 'demo'): LayoutAgent[] =>
   Array.from({ length: n }, (_, i) => ({ id: `${con}:a${i}`, connectorId: con, department: depts[i % depts.length], chief: i < depts.length, slot: i }));
@@ -45,5 +45,24 @@ describe('layout', () => {
   it('área de espera em fileiras de 6', () => {
     expect(zoneSlot(0, 1).x).toBeCloseTo(0);
     expect(zoneSlot(6, 7).z).toBeLessThan(zoneSlot(0, 7).z);
+  });
+  it('arena cresce com muitos agentes e a recarga cabe no piso', () => {
+    const small = computeLayout(mk(8, ['A', 'B']));
+    expect(small.dims.scale).toBe(1);
+    const L = computeLayout(mk(40, ['A', 'B', 'C', 'D', 'E', 'F', 'G']));
+    const d = L.dims;
+    expect(d.halfW).toBeGreaterThan(HALF_W);
+    expect(d.scale).toBeGreaterThan(1);
+    for (let k = 0; k < 40; k++) {
+      const p = dockSlot(k, d);
+      expect(Math.abs(p.x)).toBeLessThanOrEqual(d.roomW / 2);
+      expect(p.z).toBeGreaterThan(d.cz - d.roomD / 2);
+    }
+    for (const p of L.spots.values()) {
+      expect(Math.abs(p.x)).toBeLessThanOrEqual(d.halfW);
+      expect(p.z).toBeGreaterThan(d.cz - d.roomD / 2);
+    }
+    // cada faixa tem pelo menos ~2,2 de largura
+    for (const D of L.depts) expect(D.x1 - D.x0).toBeGreaterThan(2.2);
   });
 });

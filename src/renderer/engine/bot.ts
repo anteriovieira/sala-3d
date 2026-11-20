@@ -96,7 +96,7 @@ export class BotView {
     this.limbMat = this.bodyMat.clone();
     this.body = new THREE.Mesh(GEO.body, this.bodyMat);
     this.body.position.y = 0.465;
-    this.body.castShadow = true;
+    this.body.castShadow = true; // só o corpo projeta sombra (braços, pés e coroa custavam caro com 30 bots)
     this.body.userData.bot = this;
     this.rig.add(this.body);
 
@@ -144,7 +144,6 @@ export class BotView {
       arm.scale.set(0.33, 1, 1);
       arm.position.set(side * 0.014, -0.175, 0);
       arm.rotation.z = side * 0.07;
-      arm.castShadow = true;
       pivot.add(arm);
       this.rig.add(pivot);
       return pivot;
@@ -162,7 +161,6 @@ export class BotView {
       foot.lookAt(dir.clone().multiplyScalar(3).add(new THREE.Vector3(0, 0.33, 0)));
       foot.rotateX(-0.42);
       foot.rotateZ(-side * 0.3);
-      foot.castShadow = true;
       foot.userData.q0 = foot.quaternion.clone();
       holder.add(foot);
       this.group.add(holder);
@@ -174,8 +172,9 @@ export class BotView {
     // tela holográfica na frente (só aparece em quem está trabalhando)
     this.consoleMat = new THREE.MeshBasicMaterial({ map: holoTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.FrontSide, toneMapped: false });
     this.consoleMesh = new THREE.Mesh(GEO.console, this.consoleMat);
-    this.consoleMesh.position.set(0, 0.47, 0.62);
-    this.consoleMesh.rotation.x = 0.5;
+    // à frente, na altura do peito e quase em pé: legível pela câmera e sem encostar no corpo (antes inclinava 0,5 e tocava a base)
+    this.consoleMesh.position.set(0, 0.44, 0.72);
+    this.consoleMesh.rotation.x = 0.22;
     this.consoleMesh.visible = false;
     this.group.add(this.consoleMesh);
 
@@ -194,11 +193,9 @@ export class BotView {
     if (on && !this.crown) {
       const crown = new THREE.Group();
       const wall = new THREE.Mesh(GEO.crown, GOLD);
-      wall.castShadow = true;
       const rim = new THREE.Mesh(GEO.crownRim, GOLD);
       rim.rotation.x = Math.PI / 2;
       rim.position.y = 0.006;
-      rim.castShadow = true;
       crown.add(wall, rim);
       const tilt = 0.52; // inclinada para o lado direito do bot
       crown.position.set(Math.sin(tilt) * 0.283, 0.585 + Math.cos(tilt) * 0.283, 0.02);
@@ -219,27 +216,37 @@ export class BotView {
     this.skinCur = undefined; // força reaplicar
   }
 
+  private skinNow: Skin | null = null;
+
   setSkin(s: Skin | null, tex: (s: Skin) => THREE.Texture) {
     const key = s ? s.name : null;
     if (this.skinCur === key) return;
     this.skinCur = key;
+    this.skinNow = s;
     const m = this.bodyMat;
     const t = s ? tex(s) : null;
+    // só recompila o material quando passa de "sem textura" para "com textura" (ou o contrário)
+    if (!!m.map !== !!t) m.needsUpdate = true;
     m.map = t;
     m.emissiveMap = t;
-    m.emissive.setHex(s ? 0xffffff : 0x000000);
-    m.emissiveIntensity = s ? 0.3 : 1;
-    m.color.setHex(s ? 0xffffff : this.baseColor);
-    m.needsUpdate = true;
-    this.limbMat.color.set(s ? s.limb : this.baseColor);
     this.faceMat.color.set(s ? s.eye : 0x07080b);
     this.mouthG.visible = !(s && s.mouth === false);
+    this.applyColors();
   }
 
+  private applyColors() {
+    const s = this.skinNow, k = this.dim ? 0.38 : 1, m = this.bodyMat;
+    m.color.setHex(s ? 0xffffff : this.baseColor).multiplyScalar(k);
+    m.emissive.setHex(s ? 0xffffff : 0x000000);
+    m.emissiveIntensity = (s ? 0.3 : 1) * k;
+    this.limbMat.color.set(s ? s.limb : this.baseColor).multiplyScalar(k);
+  }
+
+  /** Conexão com erro: escurece o bot. Sem transparência, que obrigava a recompilar o material (~3 s travado). */
   setDim(on: boolean) {
     if (on === this.dim) return;
     this.dim = on;
-    for (const m of [this.bodyMat, this.limbMat]) { m.transparent = on; m.opacity = on ? 0.4 : 1; m.needsUpdate = true; }
+    this.applyColors();
     this.label?.classList.toggle('dim', on);
   }
 
@@ -315,7 +322,7 @@ export class BotView {
       ry = Math.sin(t * (busy ? 1.6 : 0.9) + this.phase) * 0.012;
       if (talking) { aL = -0.15; aR = -1.25 + Math.sin(t * 6) * 0.28; }
       else if (!busy) { aL = Math.sin(t * 0.9 + this.phase) * 0.04; aR = Math.sin(t * 0.9 + this.phase + 2) * 0.04; }
-      else { aL = -0.95 + Math.sin(t * this.speed + this.phase) * 0.2; aR = -0.95 + Math.sin(t * this.speed * 1.27 + this.phase + 1.4) * 0.2; }
+      else { aL = -1.15 + Math.sin(t * this.speed + this.phase) * 0.18; aR = -1.15 + Math.sin(t * this.speed * 1.27 + this.phase + 1.4) * 0.18; } // digitando: mãos à frente, na direção da tela
     }
     this.rig.rotation.z = damp(this.rig.rotation.z, rz, 14, dt);
     this.rig.rotation.x = damp(this.rig.rotation.x, rx, 9, dt);
@@ -346,7 +353,7 @@ export class BotView {
     const target = hideScreen ? 0 : 0.72 + Math.sin(t * 7 + this.phase) * 0.08;
     this.consoleMat.opacity = damp(this.consoleMat.opacity, target, 6, dt);
     this.consoleMesh.visible = this.consoleMat.opacity > 0.02;
-    this.consoleMesh.position.y = 0.47 + Math.sin(t * 1.3 + this.phase) * 0.012;
+    this.consoleMesh.position.y = 0.44 + Math.sin(t * 1.3 + this.phase) * 0.012;
     const st = this.d.status;
     this.ringMat.opacity = (this.chief ? Math.max(up, 0.55) : up) * (0.42 + Math.sin(t * (st === 'waiting' ? 3.2 : st === 'working' ? 6 : st === 'problem' ? 9 : 1.6) + this.phase) * 0.22) * (this.dim ? 0.5 : 1);
     this.ringMat.color.setHex(st === 'problem' ? STATUS_COLOR.problem : this.chief ? 0xffc531 : BOT_COLOR[this.d.color || ''] ?? STATUS_COLOR[st]);

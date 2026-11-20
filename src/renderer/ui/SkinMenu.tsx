@@ -1,6 +1,6 @@
 // Menu de skins: grade com "Sem skin" + todas as skins registradas.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { css, pastelOf, skinThumb } from '../avatar';
 import { t } from '../i18n';
 import { allSkins, defaultSkin, resolveSkin } from '../skins/registry';
@@ -13,6 +13,21 @@ export function SkinMenu() {
   const prefs = useUI((s) => s.prefs);
   const setPref = useUI((s) => s.setPref);
   const ref = useRef<HTMLDivElement>(null);
+  // miniaturas geradas aos poucos (no máximo ~8 ms por quadro), para o menu abrir na hora sem travar a sala
+  const [ready, setReady] = useState(0);
+  useEffect(() => {
+    if (!menu) return;
+    const list = allSkins();
+    let i = 0, raf = 0;
+    const tick = () => {
+      const t0 = performance.now();
+      while (i < list.length && performance.now() - t0 < 8) skinThumb(list[i++]);
+      setReady(i);
+      if (i < list.length) raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [menu?.agentId]);
 
   useEffect(() => {
     if (!menu) return;
@@ -24,12 +39,12 @@ export function SkinMenu() {
   }, [menu, set]);
 
   useEffect(() => {
-    // posiciona ao lado da lista, sem sair da tela
+    // posiciona à direita da lista (que fica ao lado da barra lateral), sem sair da tela
     const el = ref.current;
     if (!el || !menu) return;
     const app = el.parentElement!.getBoundingClientRect();
     const roster = document.getElementById('roster')?.getBoundingClientRect();
-    el.style.left = Math.max(8, (roster ? roster.left - app.left : app.width) - el.offsetWidth - 8) + 'px';
+    el.style.left = Math.max(8, Math.min(roster ? roster.right - app.left + 8 : 8, app.width - el.offsetWidth - 8)) + 'px';
     el.style.top = Math.max(8, Math.min(menu.top - app.top - 20, app.height - el.offsetHeight - 8)) + 'px';
   });
 
@@ -53,9 +68,9 @@ export function SkinMenu() {
           <span className="sk-th" style={{ background: css(pastelOf(agent.slot)) }} />
           <span>{t('noSkin')}</span>
         </button>
-        {allSkins().map((s) => (
+        {allSkins().map((s, i) => (
           <button key={s.name} className={'sk-item' + (curName === s.name ? ' on' : '')} onClick={() => choose(s.name)}>
-            <span className="sk-th" style={{ backgroundImage: `url(${skinThumb(s)})` }} />
+            <span className="sk-th" style={i < ready ? { backgroundImage: `url(${skinThumb(s)})` } : { background: css(pastelOf(agent.slot)), opacity: 0.4 }} />
             <span>{s.name}</span>
           </button>
         ))}

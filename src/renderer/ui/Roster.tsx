@@ -1,16 +1,18 @@
 // Lista de bots à direita, em cartões por departamento; filtro por plataforma quando há mais de uma.
 
 import { avatarUrl, css } from '../avatar';
+import { splitDoing } from '../doing';
 import { STATUS_COLOR } from '../engine/bot';
 import { hm, dayTime, statusText, t } from '../i18n';
 import { useUI } from '../store';
 import type { Agent } from '@shared/types';
 import { download, getEngine, skinFor } from './actions';
 import { IconDownload, IconMail, IconSkin } from './icons';
+import { PanelHead } from './Panels';
 
 export function subLine(a: Agent) {
   const st = a.status;
-  const sub = st === 'working' ? a.doing || statusText('working') : st === 'available' ? a.role || a.department : statusText(st);
+  const sub = st === 'working' ? splitDoing(a.doing).label || statusText('working') : st === 'available' ? a.role || a.department : statusText(st);
   return sub + (a.next ? ' · ⏰ ' + hm(a.next.at) : '');
 }
 
@@ -23,7 +25,8 @@ export function Roster() {
   const openWindow = useUI((s) => s.openWindow);
   const setCompose = useUI((s) => s.setCompose);
   const setSkinMenu = useUI((s) => s.setSkinMenu);
-  if (!prefs.roster) return null;
+  const open = useUI((s) => s.panel === 'roster');
+  if (!open) return null;
   const by = new Map(room.agents.map((a) => [a.id, a]));
   const multi = room.connectors.length > 1;
   const label = (id: string) => room.connectors.find((c) => c.id === id)?.label ?? id;
@@ -31,14 +34,11 @@ export function Roster() {
   const filter = prefs.platform && room.connectors.some((c) => c.id === prefs.platform) ? prefs.platform : null;
 
   return (
-    <div id="roster" className="glass">
-      <div className="head">
-        <span>{t('bots')}</span>
-        <span>
-          <button title="Mandar uma mensagem para um departamento inteiro" onClick={() => setCompose({ kind: 'dept', deptKey: depts[0]?.key ?? null })}><IconMail />{t('all')}</button>
-          <button onClick={() => getEngine()?.viewAll()}>{t('viewAll')}</button>
-        </span>
-      </div>
+    <div id="roster" className="panel glass">
+      <PanelHead title={t('bots')}>
+        <button className="pbtn" title="Mandar uma mensagem para um departamento inteiro" onClick={() => setCompose({ kind: 'dept', deptKey: depts[0]?.key ?? null })}><IconMail />{t('all')}</button>
+        <button className="pbtn" onClick={() => getEngine()?.viewAll()}>{t('viewAll')}</button>
+      </PanelHead>
       {multi ? (
         <div className="pfilter">
           <button className={!filter ? 'on' : ''} onClick={() => setPref('platform', null)}>Todas</button>
