@@ -1,0 +1,131 @@
+/* Sala 3D · tokens v2 (direção aprovada em 20/11/2026)
+ * Sala em tela cheia, painéis de vidro flutuando por cima, degradê ciano → violeta → magenta.
+ * Este arquivo ainda não é importado por nada: entra em uso junto com o AppShell.
+ * Tema claro: <html data-theme="light">. Sem desfoque: <html data-blur="off">.
+ */
+:root {
+  /* superfícies */
+  --bg-0: #05060F;
+  --panel: rgba(13, 16, 34, .58);        /* vidro: usar com --glass-blur */
+  --panel-solid: rgba(13, 16, 34, .9);   /* popovers, Ajustes, toast e modo sem desfoque */
+  --panel-2: rgba(255, 255, 255, .05);
+  --field-bg: rgba(5, 6, 15, .55);
+  --line: rgba(150, 170, 255, .16);
+  --line-strong: rgba(170, 190, 255, .42);
+  --scrim: rgba(3, 4, 12, .55);
+
+  /* texto */
+  --text: #EEF1FF;
+  --text-dim: #A6AFCF;
+  --text-faint: #828BB0;                 /* só placeholder e dica, nunca dado */
+
+  /* destaque */
+  --accent: #5EE6FF;
+  --accent-2: #8B7CFF;
+  --accent-3: #E879F9;
+  --on-accent: #041018;
+  --accent-soft: rgba(94, 230, 255, .12);
+  --grad: linear-gradient(120deg, #5EE6FF 0%, #8B7CFF 55%, #E879F9 100%);
+
+  /* estado */
+  --ok: #4DF0A6;
+  --warn: #FFC857;
+  --err: #FF6B8B;
+
+  /* sala 3D (o motor lê por getComputedStyle e reaplica na troca de tema) */
+  --scene-bg: #05060F;
+  --scene-fog: #070A1C;
+  --scene-floor: #0A0F2A;
+  --scene-grid: #2B4FB8;
+  --scene-desk: #1C2450;
+  --scene-bot: #B9C6FF;
+  --scene-glow-a: rgba(139, 124, 255, .22);  /* luz violeta, alto da cena */
+  --scene-glow-b: rgba(94, 230, 255, .16);   /* luz ciano, canto inferior */
+
+  /* tipografia */
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-ui: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-15: 15px; --fs-22: 22px;
+  --lh: 1.4;
+
+  /* espaço e forma */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px;
+  --gap-shell: 12px;                     /* margem entre os painéis e a borda da janela */
+  --r-control: 9px; --r-panel: 16px; --r-status: 12px; --r-chip: 999px;
+  --control-h: 30px; --row-h: 38px; --bar-top: 48px; --bar-status: 32px;
+  --roster-w: 300px; --side-w: 392px;
+
+  /* vidro, brilho e sombra */
+  --glass-blur: blur(22px) saturate(150%);
+  --glass-blur-pop: blur(28px) saturate(150%);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 12px 40px rgba(0, 0, 0, .45);
+  --shadow-pop: 0 24px 70px rgba(0, 0, 0, .6), 0 0 0 1px rgba(150, 170, 255, .08);
+  --glow-state: 0 0 9px currentColor;    /* text-shadow dos glifos de estado */
+  --glow-accent: 0 0 18px rgba(94, 230, 255, .35);
+  --focus-ring: 0 0 0 2px #05060F, 0 0 0 4px var(--accent);
+
+  /* movimento */
+  --motion: 160ms cubic-bezier(.2, .8, .2, 1);
+  --pulse: 1.8s ease-in-out infinite;
+}
+
+[data-theme="light"] {
+  --bg-0: #E9ECFA;
+  --panel: rgba(255, 255, 255, .66);
+  --panel-solid: rgba(255, 255, 255, .94);
+  --panel-2: rgba(30, 50, 140, .05);
+  --field-bg: rgba(255, 255, 255, .7);
+  --line: rgba(40, 60, 150, .16);
+  --line-strong: rgba(40, 60, 150, .42);
+  --scrim: rgba(30, 40, 100, .28);
+
+  --text: #10142A;
+  --text-dim: #465076;
+  --text-faint: #636D96;
+
+  --accent: #0A7396;
+  --accent-2: #6240E8;
+  --accent-3: #B026C9;
+  --on-accent: #FFFFFF;
+  --accent-soft: rgba(10, 115, 150, .10);
+  --grad: linear-gradient(120deg, #0A7396 0%, #6240E8 60%, #B026C9 100%);
+
+  --ok: #0B7A4B;
+  --warn: #8A5600;
+  --err: #BE2148;
+
+  --scene-bg: #E9ECFA;
+  --scene-fog: #E9ECFA;
+  --scene-floor: #F6F7FF;
+  --scene-grid: #A9B4EC;
+  --scene-desk: #C6CEF2;
+  --scene-bot: #7481C4;
+  --scene-glow-a: rgba(98, 64, 232, .16);
+  --scene-glow-b: rgba(10, 115, 150, .14);
+
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 10px 34px rgba(30, 40, 100, .14);
+  --shadow-pop: 0 24px 60px rgba(30, 40, 100, .22);
+  --glow-state: none;
+  --glow-accent: none;
+  --focus-ring: 0 0 0 2px #fff, 0 0 0 4px var(--accent);
+}
+
+/* Sem desfoque: escolha do usuário em Ajustes ou queda automática se o FPS não aguentar. */
+[data-blur="off"] {
+  --glass-blur: none;
+  --glass-blur-pop: none;
+  --panel: var(--panel-solid);
+}
+
+@media (pointer: coarse) {
+  :root { --control-h: 40px; --row-h: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion: 0ms; --pulse: 0s 1 normal; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root { --glass-blur: none; --glass-blur-pop: none; --panel: var(--panel-solid); }
+}
