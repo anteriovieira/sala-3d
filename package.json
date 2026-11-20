@@ -2,7 +2,7 @@
   "name": "sala-3d",
   "productName": "Sala 3D",
   "version": "0.1.0",
-  "description": "Sala 3D dos Bots: agentes de várias plataformas na mesma sala",
+  "description": "Sala 3D dos Bots: agentes de v\u00e1rias plataformas na mesma sala",
   "private": true,
   "main": "out/main/index.js",
   "type": "module",
@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "react": "^19.3.1",
