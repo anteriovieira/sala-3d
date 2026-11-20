@@ -42,7 +42,7 @@ export function App() {
     }, ui.prefs);
     setEngine(e);
     // medidas para o teste de fumaça (sem dados de conversa)
-    (window as unknown as { __salaDebug: () => unknown }).__salaDebug = () => ({ min: e.minDistance(), agents: useUI.getState().room.agents.length });
+    (window as unknown as { __salaDebug: () => unknown }).__salaDebug = () => ({ min: e.minDistance(), agents: useUI.getState().room.agents.length, fps: e.fpsStats() });
     const off = subscribeState((s) => { useUI.getState().setRoom(s); e.setRoom(s); }, (ok) => useUI.getState().setLink(ok));
     return () => { off(); e.dispose(); setEngine(null); };
   }, []);
@@ -57,6 +57,12 @@ export function App() {
   // tecla F: tela cheia
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
+      // Alt+Shift+P: mostrador de FPS (preferência de desenvolvimento, fica guardada)
+      if (e.code === 'KeyP' && e.altKey && e.shiftKey && !e.repeat) {
+        const s = useUI.getState();
+        s.setPref('fps', !s.prefs.fps);
+        return;
+      }
       const tag = (e.target as HTMLElement | null)?.tagName || '';
       if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !/^(TEXTAREA|INPUT|SELECT)$/.test(tag) && canFull()) toggleFull();
     };

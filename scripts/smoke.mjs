@@ -20,4 +20,8 @@ writeFileSync(join(userData, 'connections.json'), JSON.stringify([
 writeFileSync(join(userData, 'server.json'), JSON.stringify({ lanEnabled: false, lanPort: 18766, localPort: 18765 }));
 const r = spawnSync(electron, ['.'], { env: { ...process.env, SALA_SMOKE: dir, SALA_SMOKE_SECONDS: secs, SALA_USER_DATA: userData }, stdio: 'inherit', timeout: (Number(secs) + 40) * 1000 });
 console.log('saída:', r.status, 'pasta:', dir);
-console.log(readFileSync(join(dir, 'result.json'), 'utf8'));
+const raw = readFileSync(join(dir, 'result.json'), 'utf8');
+console.log(raw);
+// resumo de quadros (fpsStats do motor; null quando a medida não rodou)
+const fps = JSON.parse(raw).fps;
+console.log(fps ? `fps: média ${fps.avg} · pior quadro ${fps.worstMs} ms · ${fps.frames} quadros · ${fps.calls} draws · ${fps.triangles} triângulos` : 'fps: não medido');
