@@ -6,6 +6,8 @@ import type { CommandResult, ConnectorCapabilities, ConnectorSnapshot, RoomComma
 import type { AgentConnector, ConnectorFactory } from './types';
 
 const asArr = (v: unknown) => (Array.isArray(v) ? v : []);
+/** Lista só com itens que são objeto: null, número, texto e array soltos são descartados sem erro. */
+const objs = (v: unknown): Record<string, unknown>[] => asArr(v).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x));
 
 /** Aceita só o que a sala entende e corta o resto (texto de terceiros é dado não confiável). */
 export function sanitizeSnapshot(raw: unknown): ConnectorSnapshot {
@@ -15,7 +17,7 @@ export function sanitizeSnapshot(raw: unknown): ConnectorSnapshot {
   const statuses = ['available', 'working', 'waiting', 'problem'];
   const asks = ['question', 'sign-in', 'secret'];
   return {
-    agents: asArr(o.agents).slice(0, 200).map((a: Record<string, unknown>) => ({
+    agents: objs(o.agents).slice(0, 200).map((a) => ({
       id: str(a.id, 200),
       name: str(a.name, 80) || str(a.id, 80),
       role: str(a.role, 80),
@@ -27,7 +29,7 @@ export function sanitizeSnapshot(raw: unknown): ConnectorSnapshot {
       ask: asks.includes(a.ask as string) ? (a.ask as 'question') : undefined,
       doing: str(a.doing, 60) || undefined,
       next: a.next && typeof a.next === 'object' ? { name: str((a.next as Record<string, unknown>).name, 60), at: num((a.next as Record<string, unknown>).at) } : undefined,
-      chat: asArr(a.chat).slice(-12).map((c: Record<string, unknown>) => ({
+      chat: objs(a.chat).slice(-12).map((c) => ({
         r: (['u', 'b', 'n', 'o'].includes(c.r as string) ? c.r : 'b') as 'b',
         t: str(c.t, 1500),
         at: num(c.at),
@@ -35,10 +37,10 @@ export function sanitizeSnapshot(raw: unknown): ConnectorSnapshot {
         from: str(c.from, 200) || undefined,
       })),
     })).filter((a) => a.id),
-    groups: asArr(o.groups).slice(0, 100).map((g: Record<string, unknown>) => ({
+    groups: objs(o.groups).slice(0, 100).map((g) => ({
       id: str(g.id, 200), name: str(g.name, 80), members: asArr(g.members).map((m) => str(m, 200)).filter(Boolean), active: !!g.active,
     })).filter((g) => g.id),
-    events: asArr(o.events).slice(-25).map((e: Record<string, unknown>) => ({
+    events: objs(o.events).slice(-25).map((e) => ({
       id: str(e.id, 200), at: num(e.at), from: str(e.from, 200), text: str(e.text, 230), to: str(e.to, 200) || undefined, groupId: str(e.groupId, 200) || undefined,
     })).filter((e) => e.id && e.from),
     departments: asArr(o.departments).map((d) => str(d, 80)).filter(Boolean),
