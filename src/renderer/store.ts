@@ -74,6 +74,8 @@ export interface UIState {
   setRoom(s: RoomState): void;
   setLink(ok: boolean): void;
   setPref<K extends keyof Prefs>(k: K, v: Prefs[K]): void;
+  /** Skin de um bot. name null = sem skin; igual à de fábrica = volta ao padrão. Nunca mexe nos interruptores globais. */
+  chooseSkin(id: AgentId, name: string | null, factory: string | undefined): void;
   openWindow(id: AgentId): void;
   closeWindow(id: AgentId): void;
   raiseWindow(id: AgentId): void;
@@ -117,6 +119,12 @@ export const useUI = create<UIState>((set, get) => ({
     const prefs = { ...get().prefs, [k]: v };
     set({ prefs });
     savePrefs(prefs);
+  },
+  chooseSkin: (id, name, factory) => {
+    const skinOf = { ...get().prefs.skinOf };
+    if (name !== null && name === factory) delete skinOf[id];
+    else skinOf[id] = name ?? 'none';
+    get().setPref('skinOf', skinOf);
   },
   openWindow: (id) => set({ windows: [...get().windows.filter((w) => w !== id), id] }),
   closeWindow: (id) => set({ windows: get().windows.filter((w) => w !== id) }),

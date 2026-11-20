@@ -1,6 +1,7 @@
 // Skins de terceiros (pack 'terceiros') ficam desligadas por padrão; o interruptor continua nos ajustes.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PREFS, loadPrefs } from '../src/renderer/store';
+import type { AgentId } from '@shared/types';
+import { DEFAULT_PREFS, loadPrefs, useUI } from '../src/renderer/store';
 
 function saved(value: unknown) {
   vi.stubGlobal('localStorage', {
@@ -47,5 +48,37 @@ describe('prefs: skins de terceiros', () => {
   it('prefs corrompidas: desligado', () => {
     vi.stubGlobal('localStorage', { getItem: () => '{nao e json', setItem: () => {} });
     expect(loadPrefs().thirdParty).toBe(false);
+  });
+});
+
+describe('SkinMenu: escolher skin não mexe nos interruptores globais', () => {
+  const a1 = 'a1' as AgentId;
+  const reset = () => {
+    saved(undefined);
+    useUI.setState({ prefs: { ...DEFAULT_PREFS, skinOf: {} } });
+  };
+
+  it('com "Mostrar skins" desligado, continua desligado', () => {
+    reset();
+    useUI.getState().chooseSkin(a1, 'Robô', 'Outra');
+    const p = useUI.getState().prefs;
+    expect(p.skins).toBe(false);
+    expect(p.thirdParty).toBe(false);
+    expect(p.skinOf[a1]).toBe('Robô');
+  });
+
+  it('com "Mostrar skins" ligado, continua ligado', () => {
+    reset();
+    useUI.getState().setPref('skins', true);
+    useUI.getState().chooseSkin(a1, 'Robô', 'Outra');
+    expect(useUI.getState().prefs.skins).toBe(true);
+  });
+
+  it('null vira "none" e a skin de fábrica limpa a escolha', () => {
+    reset();
+    useUI.getState().chooseSkin(a1, null, 'Outra');
+    expect(useUI.getState().prefs.skinOf[a1]).toBe('none');
+    useUI.getState().chooseSkin(a1, 'Outra', 'Outra');
+    expect(useUI.getState().prefs.skinOf).toEqual({});
   });
 });
