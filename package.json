@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "dist": "electron-vite build && npm exec --yes electron-builder@26 -- --publish never"
   },
   "dependencies": {
     "react": "^19.3.1",
