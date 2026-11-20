@@ -35,11 +35,12 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   depts: true, roster: true, names: true, bubbles: true, screens: true, skins: false, zone: true, legend: true,
   rotate: true, open: true, timeline: true, tlOpen: true, sound: false, size: 1, speed: 0, theme: 0,
-  deptMode: 'separate', sign: 'SALA 3D', thirdParty: true, timeZone: '', platform: null, skinOf: {}, cam: null,
+  deptMode: 'separate', sign: 'SALA 3D', thirdParty: false, timeZone: '', platform: null, skinOf: {}, cam: null,
 };
 
 const KEY = 'sala.prefs';
-function loadPrefs(): Prefs {
+// Chave ausente nas prefs guardadas cai no padrão atual (ex.: thirdParty desligado).
+export function loadPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (raw && typeof raw === 'object') return { ...DEFAULT_PREFS, ...(raw.cfg ?? raw), skinOf: { ...(raw.cfg?.skinOf ?? raw.skinOf ?? {}) }, cam: raw.cam ?? null };
