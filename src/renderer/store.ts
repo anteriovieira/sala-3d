@@ -39,18 +39,26 @@ export const DEFAULT_PREFS: Prefs = {
 };
 
 const KEY = 'sala.prefs';
+/** v2: thirdParty passou a ser desligado por padrão. Prefs v1 (sem versão) gravavam o padrão antigo como se fosse escolha. */
+export const PREFS_VERSION = 2;
 // Chave ausente nas prefs guardadas cai no padrão atual (ex.: thirdParty desligado).
 export function loadPrefs(): Prefs {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (raw && typeof raw === 'object') return { ...DEFAULT_PREFS, ...(raw.cfg ?? raw), skinOf: { ...(raw.cfg?.skinOf ?? raw.skinOf ?? {}) }, cam: raw.cam ?? null };
+    if (raw && typeof raw === 'object') {
+      const cfg = { ...(raw.cfg ?? raw) };
+      // v1 gravava todas as prefs: thirdParty: true ali veio do padrão antigo, não de uma escolha. Volta ao padrão.
+      if ((raw.v ?? 1) < PREFS_VERSION) delete cfg.thirdParty;
+      delete cfg.v;
+      return { ...DEFAULT_PREFS, ...cfg, skinOf: { ...(raw.cfg?.skinOf ?? raw.skinOf ?? {}) }, cam: raw.cam ?? null };
+    }
   } catch { /* ignora */ }
   return { ...DEFAULT_PREFS };
 }
 export function savePrefs(p: Prefs) {
   try {
     const { cam, ...cfg } = p;
-    localStorage.setItem(KEY, JSON.stringify({ cfg, cam }));
+    localStorage.setItem(KEY, JSON.stringify({ v: PREFS_VERSION, cfg, cam }));
   } catch { /* ignora */ }
 }
 
