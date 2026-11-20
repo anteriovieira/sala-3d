@@ -1,0 +1,33 @@
+appId: com.anteriovieira.sala3d
+productName: Sala 3D
+copyright: Copyright © Antério Vieira
+
+directories:
+  output: dist
+  buildResources: build
+
+# Whitelist: only the electron-vite output and package.json go into the app.
+# docs/, src/, test/, scripts/ and *.md stay out of the package.
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+asar: true
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  identity: null # no code signing / notarization for now
+
+win:
+  target: nsis
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  target: AppImage
+  category: Utility
