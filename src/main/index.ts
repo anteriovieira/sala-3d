@@ -193,7 +193,7 @@ function smoke(w: BrowserWindow, dir: string) {
       http.postBadOrigin = (await fetch(base + '/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://evil.example' }, body })).status;
       http.postBadType = (await fetch(base + '/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: '{"type":"x"}' })).status;
     } catch (e) { http.error = (e as Error).message; }
-    writeFileSync(join(dir, 'result.json'), JSON.stringify({ minDistance: minD, errors, info, http, state: { agents: hub.state().agents.length, connectors: hub.state().connectors } }, null, 2));
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ minDistance: minD, fps: info?.debug?.fps ?? null, errors, info, http, state: { agents: hub.state().agents.length, connectors: hub.state().connectors } }, null, 2));
     app.exit(0);
   })().catch((e) => { console.error('smoke', e); app.exit(1); });
 }

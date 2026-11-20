@@ -31,7 +31,8 @@ export function SkinMenu() {
     if (!el || !menu) return;
     const app = el.parentElement!.getBoundingClientRect();
     const roster = document.getElementById('roster')?.getBoundingClientRect();
-    el.style.left = Math.max(8, (roster ? roster.left - app.left : app.width) - el.offsetWidth - 8) + 'px';
+    // a lista fica à esquerda (AppShell): o menu abre à direita dela
+    el.style.left = Math.max(8, Math.min(app.width - el.offsetWidth - 8, roster ? roster.right - app.left + 8 : 8)) + 'px';
     el.style.top = Math.max(8, Math.min(menu.top - app.top - 20, app.height - el.offsetHeight - 8)) + 'px';
   });
 

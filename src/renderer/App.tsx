@@ -5,27 +5,26 @@ import { setDisabledPacks } from './skins/registry';
 import { useUI } from './store';
 import { subscribeState } from './transport';
 import { getEngine, setEngine } from './ui/actions';
-import { ChatWindow } from './ui/ChatWindow';
+import { AppShell } from './ui/AppShell';
 import { ComposeBox } from './ui/ComposeBox';
 import { Connections } from './ui/Connections';
-import { canFull, Hud, Rail, Settings, Timeline, Toast, toggleFull } from './ui/Panels';
+import { canFull, Hud, Rail, Settings, Toast, toggleFull } from './ui/Panels';
 import { Roster } from './ui/Roster';
 import { SkinMenu } from './ui/SkinMenu';
 
 export function App() {
-  const appRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const prefs = useUI((s) => s.prefs);
-  const room = useUI((s) => s.room);
-  const windows = useUI((s) => s.windows);
 
-  // motor 3D: criado uma vez, fora do ciclo do React
+  // motor 3D: criado uma vez, fora do ciclo do React. Fica no #stage da casca: o ResizeObserver
+  // do motor chama resize() quando o painel abre/fecha ou a lista muda de largura (sem recriar).
   useEffect(() => {
     const ui = useUI.getState();
     setDisabledPacks(ui.prefs.thirdParty ? [] : ['terceiros']);
     setTimeZone(ui.prefs.timeZone);
-    const e = new RoomEngine(appRef.current!, labelsRef.current!, {
+    const e = new RoomEngine(stageRef.current!, labelsRef.current!, {
       openAgent: (id) => useUI.getState().openWindow(id),
       openTable: (key) => {
         const s = useUI.getState();
@@ -42,7 +41,7 @@ export function App() {
     }, ui.prefs);
     setEngine(e);
     // medidas para o teste de fumaça (sem dados de conversa)
-    (window as unknown as { __salaDebug: () => unknown }).__salaDebug = () => ({ min: e.minDistance(), agents: useUI.getState().room.agents.length });
+    (window as unknown as { __salaDebug: () => unknown }).__salaDebug = () => ({ min: e.minDistance(), agents: useUI.getState().room.agents.length, fps: e.fpsStats() });
     const off = subscribeState((s) => { useUI.getState().setRoom(s); e.setRoom(s); }, (ok) => useUI.getState().setLink(ok));
     return () => { off(); e.dispose(); setEngine(null); };
   }, []);
@@ -57,6 +56,12 @@ export function App() {
   // tecla F: tela cheia
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
+      // Alt+Shift+P: mostrador de FPS (preferência de desenvolvimento, fica guardada)
+      if (e.code === 'KeyP' && e.altKey && e.shiftKey && !e.repeat) {
+        const s = useUI.getState();
+        s.setPref('fps', !s.prefs.fps);
+        return;
+      }
       const tag = (e.target as HTMLElement | null)?.tagName || '';
       if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !/^(TEXTAREA|INPUT|SELECT)$/.test(tag) && canFull()) toggleFull();
     };
@@ -64,26 +69,26 @@ export function App() {
     return () => window.removeEventListener('keydown', k);
   }, []);
 
-  const agentById = new Map(room.agents.map((a) => [a.id, a]));
   return (
-    <div id="app" ref={appRef}>
+    <AppShell
+      stageRef={stageRef}
+      list={<Roster />}
+      overlays={(
+        <>
+          <SkinMenu />
+          <ComposeBox />
+          <Connections />
+          <Toast />
+          <div id="veil" style={{ opacity: ready ? 0 : 1 }} />
+        </>
+      )}
+    >
       <div id="labels" ref={labelsRef} />
       <Rail />
       <div id="leftcol">
         <Hud />
         <Settings />
       </div>
-      <Roster />
-      <Timeline />
-      {windows.map((id, i) => {
-        const a = agentById.get(id);
-        return a ? <ChatWindow key={id} a={a} index={i} z={21 + i} /> : null;
-      })}
-      <SkinMenu />
-      <ComposeBox />
-      <Connections />
-      <Toast />
-      <div id="veil" style={{ opacity: ready ? 0 : 1 }} />
-    </div>
+    </AppShell>
   );
 }

@@ -1,9 +1,11 @@
-// Estado da interface (zustand): dados da sala, preferências guardadas, janelas abertas.
+// Estado da interface (zustand): dados da sala e preferências guardadas.
+// Layout da casca (painel, abas, largura da lista) fica no slice `ui` (uiSlice.ts).
 // Posições, caminhadas e rostos NÃO ficam aqui: são do motor 3D.
 
 import { create } from 'zustand';
 import type { DeptLayout, DeptMode } from '@shared/layout';
 import type { AgentId, ChatItem, RoomState } from '@shared/types';
+import { useLayout } from './uiSlice';
 
 export interface Prefs {
   depts: boolean;
@@ -25,6 +27,8 @@ export interface Prefs {
   deptMode: DeptMode;
   sign: string;
   thirdParty: boolean;
+  /** desenvolvimento: mostrador de quadros por segundo (Alt+Shift+P) */
+  fps: boolean;
   timeZone: string;
   platform: string | null;
   /** skin por agente (id estável): nome da skin ou 'none' */
@@ -35,7 +39,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   depts: true, roster: true, names: true, bubbles: true, screens: true, skins: false, zone: true, legend: true,
   rotate: true, open: true, timeline: true, tlOpen: true, sound: false, size: 1, speed: 0, theme: 0,
-  deptMode: 'separate', sign: 'SALA 3D', thirdParty: false, timeZone: '', platform: null, skinOf: {}, cam: null,
+  deptMode: 'separate', sign: 'SALA 3D', thirdParty: false, fps: false, timeZone: '', platform: null, skinOf: {}, cam: null,
 };
 
 const KEY = 'sala.prefs';
@@ -70,7 +74,6 @@ export interface UIState {
   room: RoomState;
   link: boolean;
   prefs: Prefs;
-  windows: AgentId[];
   compose: Compose | null;
   pending: Record<AgentId, ChatItem[]>;
   skinMenu: { agentId: AgentId; top: number } | null;
@@ -101,7 +104,6 @@ export const useUI = create<UIState>((set, get) => ({
   room: { at: 0, agents: [], groups: [], events: [], connectors: [] },
   link: false,
   prefs: loadPrefs(),
-  windows: [],
   compose: null,
   pending: {},
   skinMenu: null,
@@ -120,7 +122,8 @@ export const useUI = create<UIState>((set, get) => ({
       if (keep.length) pending[id] = keep;
     }
     const ids = new Set(room.agents.map((a) => a.id));
-    set({ room, pending, windows: get().windows.filter((w) => ids.has(w)) });
+    set({ room, pending });
+    useLayout.getState().keepTabs(ids);
   },
   setLink: (link) => set({ link }),
   setPref: (k, v) => {
@@ -134,12 +137,10 @@ export const useUI = create<UIState>((set, get) => ({
     else skinOf[id] = name ?? 'none';
     get().setPref('skinOf', skinOf);
   },
-  openWindow: (id) => set({ windows: [...get().windows.filter((w) => w !== id), id] }),
-  closeWindow: (id) => set({ windows: get().windows.filter((w) => w !== id) }),
-  raiseWindow: (id) => {
-    const w = get().windows;
-    if (w[w.length - 1] !== id) set({ windows: [...w.filter((x) => x !== id), id] });
-  },
+  // conversas viraram abas do painel (slice `ui`); os nomes ficam para o motor e as ações
+  openWindow: (id) => useLayout.getState().openTab(id),
+  closeWindow: (id) => useLayout.getState().closeTab(id),
+  raiseWindow: (id) => useLayout.getState().setActiveTab(id),
   setCompose: (compose) => set({ compose }),
   addPending: (id, text) => set({ pending: { ...get().pending, [id]: [...(get().pending[id] ?? []), { r: 'u', t: text, at: Date.now() }] } }),
   setSkinMenu: (skinMenu) => set({ skinMenu }),
