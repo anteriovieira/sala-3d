@@ -238,3 +238,30 @@ body.light #veil { background: #dde5f0; }
   #leftcol { display: none; }
   #roster { top: auto; height: 40%; }
 }
+
+/* ---------- casca (AppShell): barra superior, lista à esquerda, cena no centro, painel à direita, barra de status ---------- */
+/* sem cores novas: só os rgba que já existem neste arquivo; os tokens entram depois (Parte 2 da Duda) */
+#app.shell { display: grid; grid-template-columns: var(--list-w, 268px) minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: 'top top top' 'list stage panel' 'status status status'; }
+.shell [hidden] { display: none !important; }
+#topbar { grid-area: top; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; box-sizing: border-box; font-size: 13px; font-weight: 650; }
+#topbar .sp { flex: 1; }
+#topbar button, #convpanel .tabs button { height: 28px; padding: 0 12px; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer; color: inherit; border-radius: 999px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18); }
+#topbar button.on, #convpanel .tabs > button.on, #convpanel .tab.on > button:first-child { background: rgba(255,255,255,0.26); }
+#botlist { grid-area: list; position: relative; min-height: 0; display: flex; padding: 0 0 8px 8px; box-sizing: border-box; z-index: 6; }
+.shell #roster { position: relative; inset: auto; width: auto; height: auto; flex: 1; min-width: 0; min-height: 0; }
+.listgrip { position: absolute; top: 0; bottom: 8px; right: -5px; width: 10px; cursor: col-resize; z-index: 7; touch-action: none; }
+#stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#convpanel { grid-area: panel; width: 380px; min-height: 0; margin: 0 8px 8px 0; display: flex; flex-direction: column; border-radius: 32px; overflow: hidden; z-index: 6; }
+#convpanel .tabs { display: flex; gap: 6px; padding: 10px 10px 0; overflow-x: auto; flex: none; scrollbar-width: none; }
+#convpanel .tab { display: inline-flex; gap: 2px; flex: none; }
+#convpanel .tab .tx { width: 28px; padding: 0; opacity: 0.7; }
+#convpanel .tabbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#convpanel .cwin.docked, #convpanel #tl { position: relative; inset: auto; z-index: auto; width: auto; min-width: 0; max-height: none; flex: 1; min-height: 0; border-radius: 0; background: none; border: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+#convpanel .cwin.docked .top { cursor: default; }
+#convpanel #tl { display: flex; flex-direction: column; }
+#convpanel #tlBody { max-height: none; flex: 1; }
+#statusbar { grid-area: status; display: flex; align-items: center; gap: 16px; height: 26px; padding: 0 16px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; opacity: 0.7; }
+#statusbar .off { opacity: 0.6; }
+body.light #topbar button, body.light #convpanel .tabs button { background: rgba(20,30,50,0.08); border-color: rgba(20,30,50,0.18); }
+@media (max-width: 900px) { #convpanel { width: 320px; } }
+@media (max-width: 640px) { #app.shell { grid-template-columns: 0 minmax(0, 1fr) auto; } #botlist { display: none; } #convpanel { width: 280px; } }
